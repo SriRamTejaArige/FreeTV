@@ -2,4 +2,6 @@
 <resources>
     <string name="app_name">Glass Home</string>
     <string name="dream_name">Glass clock</string>
+    <string name="keys_name">Glass Home remote buttons</string>
+    <string name="keys_about">Lets a button on the remote open the app you choose (set in the FreeTV phone app). It reads nothing else.</string>
 </resources>

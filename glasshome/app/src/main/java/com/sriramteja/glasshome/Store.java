@@ -66,6 +66,14 @@ final class Store {
         return cachedRaw;
     }
 
+    /** A quick fingerprint of the settings files (name, time, size): changes whenever either is written. */
+    static String stamp() {
+        File own = new File(Environment.getExternalStorageDirectory(),
+                "Android/data/com.sriramteja.glasshome/files/config.json");
+        File pics = new File(dir(), "config.json");
+        return own.lastModified() + ":" + own.length() + "|" + pics.lastModified() + ":" + pics.length();
+    }
+
     /** The settings in force: the chosen theme's defaults with the file's settings over them. */
     static JSONObject config() {
         return Themes.merge(rawConfig());
@@ -104,9 +112,14 @@ final class Store {
      */
     static File currentWallpaper(Context ctx) {
         List<File> all = wallpapers();
-        if (config().optBoolean("dark_only", false)) all = darkOnly(ctx, all);
-        if (all.isEmpty()) return null;
         JSONObject c = config();
+        // a picture chosen on the phone always wins, even where the theme keeps to dark pictures
+        String chosen = c.optString("wallpaper_fixed", "");
+        if (!chosen.isEmpty()) {
+            for (File f : all) if (f.getName().equals(chosen)) return f;
+        }
+        if (c.optBoolean("dark_only", false)) all = darkOnly(ctx, all);
+        if (all.isEmpty()) return null;
         SharedPreferences p = ctx.getSharedPreferences("glass", Context.MODE_PRIVATE);
         String name = p.getString("wallpaper", "");
         long since = p.getLong("wallpaper_at", 0);

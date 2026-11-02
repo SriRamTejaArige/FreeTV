@@ -1,5 +1,15 @@
 # Changelog
 
+## FreeTV 2.1 · Glass Home 3.1 (November 2026)
+
+- **Faster changes:** themes, wallpapers and settings show on the TV within about a second.
+  - Glass Home now watches its settings itself.
+  - The phone sends each change on its own channel, no longer queued behind downloads, and without a slow screen check.
+- **Your picked wallpaper always shows,** including in the dark-only themes (Noir, Neon, Day & Night at night).
+- **The screensaver repairs itself** if the TV's setting names an app that isn't installed, so the TV no longer just switches off.
+- **Remote buttons:** the PatchWall button on Xiaomi remotes opens YouTube. Pick any app, or nothing, in FreeTV > More > TV and connection. Game controllers aren't affected.
+- **Lighter home screen:** the app list is loaded once and reused until an app is installed, updated or removed.
+
 ## FreeTV 2.0 · Glass Home 3.0 (November 2026)
 
 - **7 new themes:** Plush, Limitless, Day & Night, Soft UI, Dot Matrix, Material and Minimalist. That's 13 in total.

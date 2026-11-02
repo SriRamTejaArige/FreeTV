@@ -219,15 +219,8 @@ final class Tv {
         link.push(data, TMP);
         sh("cp " + TMP + " " + PICS + "/config.json; [ -d " + FILES + " ] && cp " + TMP + " " + FILES + "/config.json; rm -f " + TMP
                 + "; appops set " + GLASS + " MANAGE_EXTERNAL_STORAGE allow 2>/dev/null; true");
-        if (showNow) {
-            String focus = sh("dumpsys window | grep -m1 mCurrentFocus");
-            if (focus.contains(GLASS)) {
-                sh("am start -a android.intent.action.MAIN -c android.intent.category.HOME >/dev/null");
-                return "Sent. The TV shows it now.";
-            }
-            return "Sent. You'll see it when the TV is on the home screen.";
-        }
-        return "Sent.";
+        // Glass Home 3 watches its settings file and shows the change within a second by itself
+        return showNow ? "On the TV." : "Sent.";
     }
 
     static final class App {
@@ -503,6 +496,7 @@ final class Tv {
                 + "pm grant " + GLASS + " android.permission.ACCESS_FINE_LOCATION 2>/dev/null; "
                 + "pm grant " + GLASS + " android.permission.ACCESS_COARSE_LOCATION 2>/dev/null; "
                 + "pm grant " + GLASS + " android.permission.READ_EXTERNAL_STORAGE 2>/dev/null; "
+                + "pm grant " + GLASS + " android.permission.WRITE_SECURE_SETTINGS 2>/dev/null; "
                 + "mkdir -p " + WALLS + "; true");
         progress.step("Making it the home screen...");
         sh("cmd package set-home-activity --user 0 " + GLASS_HOME + " 2>/dev/null; true");

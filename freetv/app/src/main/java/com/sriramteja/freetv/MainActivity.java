@@ -97,6 +97,8 @@ public class MainActivity extends Activity {
 
     private final ExecutorService worker = Executors.newSingleThreadExecutor();
     private final ExecutorService puller = Executors.newSingleThreadExecutor();
+    /** Settings go out on their own line, so they never wait behind icon and picture downloads. */
+    private final ExecutorService sender = Executors.newSingleThreadExecutor();
     private final Handler main = new Handler(Looper.getMainLooper());
     private SharedPreferences prefs;
     private AdbLink link;
@@ -297,6 +299,7 @@ public class MainActivity extends Activity {
     protected void onDestroy() {
         worker.shutdownNow();
         puller.shutdownNow();
+        sender.shutdownNow();
         if (link != null) new Thread(link::close).start();
         super.onDestroy();
     }
@@ -769,7 +772,7 @@ public class MainActivity extends Activity {
         styleSend();
         for (Runnable r : new ArrayList<>(onChange)) r.run();
         main.removeCallbacks(autoSend);
-        if (prefs.getBoolean("autosend", true) && connected) main.postDelayed(autoSend, 1100);
+        if (prefs.getBoolean("autosend", true) && connected) main.postDelayed(autoSend, 400);
     }
 
     private android.animation.ObjectAnimator pulse;
@@ -825,9 +828,24 @@ public class MainActivity extends Activity {
         } catch (JSONException e) {
             return;
         }
-        work("Sending to the TV...", () -> tv.sendConfig(snapshot, showNow), () -> {
-            dirty = false;
-            styleSend();
+        sender.execute(() -> {
+            String r;
+            boolean ok = true;
+            try {
+                r = tv.sendConfig(snapshot, showNow);
+            } catch (Exception e) {
+                ok = false;
+                r = "Not sent: " + (e.getMessage() == null ? e.toString() : e.getMessage());
+                if (link != null && !link.isConnected()) connected = false;
+            }
+            final String msg = r;
+            final boolean good = ok;
+            main.post(() -> {
+                // only clear "Send" if nothing changed while it was on its way
+                if (good && snapshot.toString().equals(raw.toString())) dirty = false;
+                if (!good) status(msg, BAD);
+                styleSend();
+            });
         });
     }
 
@@ -2750,6 +2768,36 @@ public class MainActivity extends Activity {
         r.addView(button(connected ? "Reconnect" : "Connect", true, v -> connect(ip.getText().toString().trim())));
         c.addView(r);
         page.addView(c);
+
+        LinearLayout rk = card("Remote buttons");
+        rk.addView(note("Give a button on the TV remote a new job. Xiaomi remotes: the PatchWall button."));
+        rk.addView(label("PatchWall button opens"));
+        JSONObject keys = merged().optJSONObject("remote_keys");
+        String curKey = keys == null ? "" : keys.optString("KEYCODE_BUTTON_5", "");
+        LinearLayout kr = row();
+        List<String[]> opts = new ArrayList<>();
+        opts.add(new String[]{"YouTube", "com.google.android.youtube.tv"});
+        for (String p : list(merged(), "dock", DEFAULT_DOCK)) {
+            if (p.equals("com.google.android.youtube.tv")) continue;
+            Tv.App a = app(p);
+            opts.add(new String[]{a != null ? a.label : Names.of(p), p});
+        }
+        opts.add(new String[]{"Nothing", ""});
+        for (String[] o : opts) {
+            TextView ch = chip(o[0], o[1].equals(curKey));
+            ch.setOnClickListener(v -> {
+                try {
+                    JSONObject m = new JSONObject();
+                    if (!o[1].isEmpty()) m.put("KEYCODE_BUTTON_5", o[1]);
+                    put("remote_keys", m);
+                } catch (JSONException ignored) { }
+                status(o[1].isEmpty() ? "The PatchWall button does nothing now." : "The PatchWall button opens " + o[0] + ".", GOOD);
+                refreshTab();
+            });
+            kr.addView(ch);
+        }
+        rk.addView(scrollRow(kr));
+        page.addView(rk);
 
         LinearLayout s = card("Sending");
         s.addView(switchRow("Send each change to the TV straight away", prefs.getBoolean("autosend", true),

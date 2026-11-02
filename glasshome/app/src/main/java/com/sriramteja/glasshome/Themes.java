@@ -51,6 +51,8 @@ final class Themes {
                     .put("ink", "light").put("tile_style", "glass")
                     .put("widget_style", "auto").put("widget_size", 100).put("widgets", new JSONArray())
                     .put("day_from", 6).put("night_from", 18)
+                    // the PatchWall button on Xiaomi remotes (KEYCODE_BUTTON_5) opens YouTube
+                    .put("remote_keys", new JSONObject().put("KEYCODE_BUTTON_5", "com.google.android.youtube.tv"))
                     .put("auto_close", new JSONArray().put("com.netflix.ninja").put("com.amazon.amazonvideo.livingroom")
                             .put("com.google.android.youtube.tv").put("in.startv.hotstar").put("com.android.tv"))
                     .put("screensaver", "auto");

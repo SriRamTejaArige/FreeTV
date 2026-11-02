@@ -214,6 +214,28 @@ public class HomeActivity extends Activity {
         }
     };
 
+    /** Settings sent from the phone show within about a second (the file's fingerprint is checked). */
+    private String seenStamp = "";
+    private final Runnable configWatch = new Runnable() {
+        @Override
+        public void run() {
+            String st = Store.stamp();
+            if (!st.equals(seenStamp)) {
+                seenStamp = st;
+                if (overlay == null && !Store.config().toString().equals(cfg.toString())) {
+                    recreate();
+                    return;
+                }
+            }
+            main.postDelayed(this, 900);
+        }
+    };
+
+    /** The apps found last time (icons and banners), kept until an app is installed, removed or updated. */
+    private static Map<String, App> appCache;
+    private static boolean cacheBanners;
+    private static boolean listening;
+
     private final Runnable rotate = new Runnable() {
         @Override
         public void run() {
@@ -341,10 +363,57 @@ public class HomeActivity extends Activity {
         main.post(weatherTick);
         main.removeCallbacks(closer);
         main.postDelayed(closer, 4000);
+        seenStamp = Store.stamp();
+        main.removeCallbacks(configWatch);
+        main.postDelayed(configWatch, 900);
+        bg.execute(this::keepScreensaver);
+    }
+
+    /**
+     * Keeps Glass Home as the screensaver when the setting names an app that is not on the TV any more (the TV
+     * would otherwise just switch the screen off), and turns on the remote-button helper when buttons are set.
+     */
+    private void keepScreensaver() {
+        try {
+            android.content.ContentResolver cr = getContentResolver();
+            String comp = Settings.Secure.getString(cr, "screensaver_components");
+            String pkg = comp == null || !comp.contains("/") ? "" : comp.substring(0, comp.indexOf('/'));
+            boolean gone = pkg.isEmpty();
+            if (!gone) {
+                try {
+                    getPackageManager().getPackageInfo(pkg, 0);
+                } catch (PackageManager.NameNotFoundException e) {
+                    gone = true;
+                }
+            }
+            boolean canWrite = checkSelfPermission("android.permission.WRITE_SECURE_SETTINGS") == PackageManager.PERMISSION_GRANTED;
+            if (gone) {
+                String mine = getPackageName() + "/.GlassDream";
+                if (canWrite) {
+                    Settings.Secure.putString(cr, "screensaver_components", mine);
+                    Settings.Secure.putInt(cr, "screensaver_enabled", 1);
+                    Settings.Secure.putInt(cr, "screensaver_activate_on_sleep", 1);
+                } else if (new File(getFilesDir(), "adbkey.pk8").isFile()) {
+                    LocalAdb.shell(this, "settings put secure screensaver_components " + mine
+                            + "; settings put secure screensaver_enabled 1; settings put secure screensaver_activate_on_sleep 1", null);
+                }
+            }
+            JSONObject keys = Store.config().optJSONObject("remote_keys");
+            if (canWrite && keys != null && keys.length() > 0) {
+                String svc = getPackageName() + "/" + KeyService.class.getName();
+                String on = Settings.Secure.getString(cr, Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES);
+                if (on == null || !on.contains(svc)) {
+                    Settings.Secure.putString(cr, Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES,
+                            on == null || on.isEmpty() ? svc : on + ":" + svc);
+                    Settings.Secure.putInt(cr, Settings.Secure.ACCESSIBILITY_ENABLED, 1);
+                }
+            }
+        } catch (Exception ignored) { }
     }
 
     @Override
     protected void onPause() {
+        main.removeCallbacks(configWatch);
         main.removeCallbacks(weatherTick);
         main.removeCallbacks(closer);
         main.removeCallbacks(rotate);
@@ -483,10 +552,43 @@ public class HomeActivity extends Activity {
     }
 
     private void loadApps() {
+        if (!listening) {
+            // an app installed, removed or updated: look again next time
+            listening = true;
+            android.content.IntentFilter pf = new android.content.IntentFilter();
+            pf.addAction(Intent.ACTION_PACKAGE_ADDED);
+            pf.addAction(Intent.ACTION_PACKAGE_REMOVED);
+            pf.addAction(Intent.ACTION_PACKAGE_CHANGED);
+            pf.addAction(Intent.ACTION_PACKAGE_REPLACED);
+            pf.addDataScheme("package");
+            getApplicationContext().registerReceiver(new android.content.BroadcastReceiver() {
+                @Override
+                public void onReceive(android.content.Context c, Intent i) {
+                    appCache = null;
+                }
+            }, pf);
+        }
         bg.execute(() -> {
             PackageManager pm = getPackageManager();
+            JSONObject look0 = Store.config();
+            boolean wantBanners = !"icons".equals(look0.optString("dock_style", "icons"))
+                    || "banner".equals(look0.optString("icon_style", "original"));
+            Map<String, App> cached = appCache;
+            boolean fresh = cached == null || (wantBanners && !cacheBanners);
             Map<String, App> found = new LinkedHashMap<>();
-            for (String cat : new String[]{Intent.CATEGORY_LEANBACK_LAUNCHER, Intent.CATEGORY_LAUNCHER}) {
+            if (!fresh) {
+                for (App c : cached.values()) {
+                    App a = new App();
+                    a.pkg = c.pkg;
+                    a.label = c.label;
+                    a.component = c.component;
+                    a.leanback = c.leanback;
+                    a.banner = c.banner;
+                    a.icon = c.icon;
+                    found.put(a.pkg, a);
+                }
+            }
+            for (String cat : fresh ? new String[]{Intent.CATEGORY_LEANBACK_LAUNCHER, Intent.CATEGORY_LAUNCHER} : new String[0]) {
                 for (ResolveInfo ri : pm.queryIntentActivities(new Intent(Intent.ACTION_MAIN).addCategory(cat), 0)) {
                     ActivityInfo ai = ri.activityInfo;
                     if (ai == null || found.containsKey(ai.packageName)) continue;
@@ -496,9 +598,7 @@ public class HomeActivity extends Activity {
                     a.label = String.valueOf(ri.loadLabel(pm));
                     a.component = new ComponentName(ai.packageName, ai.name);
                     a.leanback = cat.equals(Intent.CATEGORY_LEANBACK_LAUNCHER);
-                    JSONObject look = Store.config();
-                    if (!"icons".equals(look.optString("dock_style", "icons"))
-                            || "banner".equals(look.optString("icon_style", "original"))) {
+                    if (wantBanners) {
                         Drawable b = ai.loadBanner(pm);
                         if (b == null) b = ai.applicationInfo.loadBanner(pm);
                         a.banner = b;
@@ -506,6 +606,10 @@ public class HomeActivity extends Activity {
                     a.icon = ri.loadIcon(pm);
                     found.put(a.pkg, a);
                 }
+            }
+            if (fresh) {
+                appCache = new LinkedHashMap<>(found);
+                cacheBanners = wantBanners;
             }
             JSONObject cfg = Store.config();
             Set<String> hidden = new HashSet<>(Store.strings(cfg, "hidden"));
@@ -562,7 +666,7 @@ public class HomeActivity extends Activity {
             boolean inputs = cfg.optBoolean("inputs_tile", false) && hasInputs();
             main.post(() -> fillDock(list, inputs ? pinned : -1));
             // for the phone app (only redone when apps or wallpapers changed)
-            Export.apps(this);
+            if (fresh) Export.apps(this);
             Export.thumbs(this);
         });
     }
