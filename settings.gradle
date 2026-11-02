@@ -1,0 +1,20 @@
+pluginManagement {
+    repositories {
+        google()
+        mavenCentral()
+        gradlePluginPortal()
+    }
+}
+dependencyResolutionManagement {
+    repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS)
+    repositories {
+        google()
+        mavenCentral()
+    }
+}
+rootProject.name = 'FreeTV'
+
+// The TV home screen (Glass Home) and the phone app (FreeTV), built together.
+include ':glasshome', ':freetv'
+project(':glasshome').projectDir = file('glasshome/app')
+project(':freetv').projectDir = file('freetv/app')

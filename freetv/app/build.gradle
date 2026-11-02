@@ -1,0 +1,63 @@
+plugins { id 'com.android.application' }
+
+android {
+    namespace 'com.sriramteja.freetv'
+    compileSdk 34
+
+    defaultConfig {
+        applicationId 'com.sriramteja.freetv'
+        minSdk 26
+        targetSdk 34
+        versionCode 2
+        versionName '1.0.1'
+    }
+
+    // Release key: put keystore.properties (storeFile, storePassword, keyAlias, keyPassword) and the .jks
+    // file in the freetv/ folder. Both are ignored by git. Without them the build is signed with the debug key.
+    def ksFile = rootProject.file('freetv/keystore.properties')
+    def ks = new Properties()
+    if (ksFile.exists()) ksFile.withInputStream { ks.load(it) }
+
+    signingConfigs {
+        release {
+            if (ksFile.exists()) {
+                storeFile rootProject.file('freetv/' + ks['storeFile'])
+                storePassword ks['storePassword']
+                keyAlias ks['keyAlias']
+                keyPassword ks['keyPassword']
+            }
+        }
+    }
+
+    buildTypes {
+        release {
+            minifyEnabled false
+            signingConfig ksFile.exists() ? signingConfigs.release : signingConfigs.debug
+        }
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+
+    // Glass Home (the TV app) travels inside FreeTV so the phone can install it on any TV.
+    sourceSets {
+        main { assets.srcDir(layout.buildDirectory.dir('generated/glasshome').get().asFile) }
+    }
+
+    lint {
+        abortOnError false
+        checkReleaseBuilds false
+    }
+}
+
+// Build Glass Home first and copy it into FreeTV's assets as glasshome.apk.
+def glassApk = project(':glasshome').layout.buildDirectory.file('outputs/apk/release/glasshome-release.apk')
+tasks.register('bundleGlassHome', Copy) {
+    dependsOn ':glasshome:assembleRelease'
+    from glassApk
+    into layout.buildDirectory.dir('generated/glasshome')
+    rename { 'glasshome.apk' }
+}
+tasks.named('preBuild') { dependsOn 'bundleGlassHome' }

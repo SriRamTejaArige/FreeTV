@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- FreeTV: a glass TV with a play sign and a spark. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp" android:height="108dp" android:viewportWidth="108" android:viewportHeight="108">
+    <path android:fillColor="#40FFFFFF" android:strokeColor="#FFFFFFFF" android:strokeWidth="3"
+        android:pathData="M33,37h42a6,6 0,0 1,6 6v24a6,6 0,0 1,-6 6H33a6,6 0,0 1,-6 -6V43a6,6 0,0 1,6 -6z" />
+    <path android:fillColor="#26FFFFFF" android:pathData="M30,40h48v6H30z" />
+    <path android:fillColor="#FFFFFFFF" android:pathData="M49,47.5v15l12.5,-7.5z" />
+    <path android:fillColor="#FFFFFFFF" android:pathData="M46,76h16a2,2 0,0 1,0 4H46a2,2 0,0 1,0 -4z" />
+    <path android:fillColor="#FFFFFFFF" android:pathData="M77,27l1.6,4.4L83,33l-4.4,1.6L77,39l-1.6,-4.4L71,33l4.4,-1.6z" />
+</vector>

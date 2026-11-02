@@ -1,0 +1,32 @@
+plugins { id 'com.android.application' }
+
+android {
+    namespace 'com.sriramteja.glasshome'
+    compileSdk 34
+
+    defaultConfig {
+        applicationId 'com.sriramteja.glasshome'
+        minSdk 26
+        // 30 = the TV's own Android 11: storage and package rules behave exactly as on the set.
+        targetSdk 30
+        versionCode 7
+        versionName '2.5'
+    }
+
+    buildTypes {
+        release {
+            minifyEnabled false
+            signingConfig signingConfigs.debug
+        }
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+
+    lint {
+        abortOnError false
+        checkReleaseBuilds false
+    }
+}

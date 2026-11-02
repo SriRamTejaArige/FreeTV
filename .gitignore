@@ -1,0 +1,29 @@
+# Signing keys and passwords: never upload these
+*.jks
+*.keystore
+keystore.properties
+signing.properties
+
+# Machine-specific settings
+local.properties
+scripts/settings.local.bat
+
+# Build output
+build/
+.gradle/
+dist/
+check/
+*.apk
+*.aab
+*.idsig
+
+# The TV app copied into FreeTV during the build
+freetv/app/src/main/assets/glasshome.apk
+
+# Editors and OS
+.idea/
+*.iml
+.vscode/
+.DS_Store
+Thumbs.db
+desktop.ini
