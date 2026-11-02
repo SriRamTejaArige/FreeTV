@@ -21,21 +21,47 @@ This repository has two apps that work together:
 | App | Runs on | What it does |
 |---|---|---|
 | **FreeTV** (`freetv/`) | Your phone | Finds the TV on your Wi-Fi, installs Glass Home on it, and lets you change everything with a live preview. Liquid-glass design. |
-| **Glass Home** (`glasshome/`) | The TV | A light home screen and screensaver for Android TV / Google TV. FreeTV carries it inside, so you only install FreeTV. |
+| **Glass Home** (`glasshome/`) | The TV | A light home screen, widgets and screensaver for Android TV / Google TV. FreeTV carries it inside, so you only install FreeTV. |
 
 ## Features
 
-**6 themes**: Clean (apps in a row), Glass, Float, Noir, Neon and Minimal. Each one has its own clock, glow and screensaver.
+**13 themes**:
+- **The originals:** Clean (apps in a row), Glass, Float, Noir, Neon and Minimal.
+- **Plush:** pastel cushions coloured from your wallpaper.
+- **Limitless:** the wallpaper edge to edge, with a huge thin clock.
+- **Day & Night:** a bright look by day and dark Noir at night, switching by itself.
+- **Soft UI:** calm light colours with pillowy tiles.
+- **Dot Matrix:** dotted lettering on black, with one red dot.
+- **Material:** tonal colours taken from your wallpaper.
+- **Minimalist:** just the apps' names.
+
+**11 widgets for the TV's home screen.** Place any of these in any corner, in five styles:
+- Clock, At a glance, Calendar, Weather
+- Sunrise & sunset, System (RAM, storage, temperature)
+- World clock, Countdown, Note
+- Quote of the day, Greeting
+
+**2 widgets for your phone's home screen**:
+- **TV remote:** arrows, OK, Back, Home and volume.
+- **Quick actions:** next look, screensaver, Home and free RAM.
 
 **12 icon packs** that work in every theme: Banner, Original, White logo, Accent, Rainbow, Gold, Sunset, Ice, Outline, Bubble, Badge and Chrome.
 
-**6 screensavers / watch faces**: Glass, Noir, Neon, Analog, Minimal and Photo slideshow. Each has its own clock size, font, colour, date, seconds, weather and sunrise/sunset options.
+**8 screensavers / watch faces**: Glass, Noir, Neon, Analog, Minimal, Photo slideshow, Dot matrix and Material. Each has its own clock size, font, colour, date, seconds, weather and sunrise/sunset options.
 
 **Every detail can be changed**:
+- **Background:** your wallpapers, a solid colour or a gradient.
+- **Text:** light or dark.
+- **Tiles:** Glass, Plush, Soft or Material.
 - **Layout:** icon size, spacing, focus zoom, labels and the dock side.
 - **Glow:** colour and strength. The accent colour is picked from the wallpaper.
-- **Clock:** 12/24 h, font, size, colour and rolling seconds.
+- **Clock:** text or dot matrix, 12/24 h, font, size, colour and rolling seconds.
 - **Top bar:** the buttons shown there, plus RAM and temperature.
+
+**Install apps on the TV from your phone:**
+- Pick an APK, or tap Share on one in your browser or Files app and choose FreeTV.
+- Split-app bundles (.apks / .xapk) work too.
+- The app goes over Wi-Fi with a progress bar. Then you can open it on the TV or add it to the home screen. No USB stick and no Downloader app needed.
 
 **Remote** with a live picture of the TV, a D-pad or touchpad, and quick actions.
 
@@ -43,7 +69,7 @@ This repository has two apps that work together:
 
 **Light on 1 GB TVs:**
 - It closes streaming apps when you press Home.
-- It only redraws the screen when something moves.
+- Widgets redraw once a minute.
 - An optional RAM clean-up script is included.
 
 ## Install

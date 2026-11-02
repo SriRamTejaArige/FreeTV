@@ -9,8 +9,8 @@ android {
         minSdk 26
         // 30 = the TV's own Android 11: storage and package rules behave exactly as on the set.
         targetSdk 30
-        versionCode 7
-        versionName '2.5'
+        versionCode 8
+        versionName '3.0'
     }
 
     buildTypes {

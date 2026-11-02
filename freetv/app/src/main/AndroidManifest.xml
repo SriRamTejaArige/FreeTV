@@ -18,6 +18,31 @@
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
+            <!-- Share an APK to FreeTV, or open one with it: it goes to the TV -->
+            <intent-filter android:label="Install on the TV">
+                <action android:name="android.intent.action.SEND" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:mimeType="application/vnd.android.package-archive" />
+            </intent-filter>
+            <intent-filter android:label="Install on the TV">
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:scheme="content" />
+                <data android:mimeType="application/vnd.android.package-archive" />
+            </intent-filter>
         </activity>
+        <receiver android:name=".RemoteWidget" android:exported="true" android:label="@string/w_remote_name">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data android:name="android.appwidget.provider" android:resource="@xml/w_remote_info" />
+        </receiver>
+        <receiver android:name=".QuickWidget" android:exported="true" android:label="@string/w_quick_name">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data android:name="android.appwidget.provider" android:resource="@xml/w_quick_info" />
+        </receiver>
+        <receiver android:name=".WidgetAction" android:exported="false" />
     </application>
 </manifest>

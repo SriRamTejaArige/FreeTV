@@ -154,26 +154,41 @@ final class AdbLink {
 
     /** Copies bytes to a file on the TV (mode 0644). */
     synchronized void push(byte[] data, String remotePath) throws IOException {
+        push(new java.io.ByteArrayInputStream(data), data.length, remotePath, null);
+    }
+
+    /** Copy progress: bytes sent so far of the total. */
+    interface Sent { void bytes(long done, long total); }
+
+    /**
+     * Copies a file to the TV (adb sync SEND) as it is read, so even a big app never has to fit in memory.
+     */
+    synchronized void push(java.io.InputStream in, long size, String remotePath, Sent progress) throws IOException {
         int local = nextLocalId++;
         int remote = open(local, "sync:");
-        ByteArrayOutputStream stream = new ByteArrayOutputStream();
+        ByteArrayOutputStream pending = new ByteArrayOutputStream();
         byte[] spec = (remotePath + ",420").getBytes(StandardCharsets.UTF_8);   // 420 = 0644
-        stream.write(syncHeader("SEND", spec.length));
-        stream.write(spec);
-        for (int off = 0; off < data.length; off += 64 * 1024) {
-            int n = Math.min(64 * 1024, data.length - off);
-            stream.write(syncHeader("DATA", n));
-            stream.write(data, off, n);
+        pending.write(syncHeader("SEND", spec.length));
+        pending.write(spec);
+        byte[] buf = new byte[64 * 1024];
+        long done = 0;
+        while (true) {
+            int n = 0;
+            while (n < buf.length) {
+                int r = in.read(buf, n, buf.length - n);
+                if (r < 0) break;
+                n += r;
+            }
+            if (n == 0) break;
+            pending.write(syncHeader("DATA", n));
+            pending.write(buf, 0, n);
+            flushSync(pending, local, remote, false);
+            done += n;
+            if (progress != null) progress.bytes(done, size);
+            if (n < buf.length) break;
         }
-        stream.write(syncHeader("DONE", (int) (System.currentTimeMillis() / 1000)));
-        byte[] all = stream.toByteArray();
-        for (int off = 0; off < all.length; off += maxData) {
-            int n = Math.min(maxData, all.length - off);
-            byte[] piece = new byte[n];
-            System.arraycopy(all, off, piece, 0, n);
-            send(A_WRTE, local, remote, piece);
-            waitOkay(local);
-        }
+        pending.write(syncHeader("DONE", (int) (System.currentTimeMillis() / 1000)));
+        flushSync(pending, local, remote, true);
         // The answer: "OKAY" + 0, or "FAIL" + length + message.
         ByteArrayOutputStream reply = new ByteArrayOutputStream();
         while (reply.size() < 8) {
@@ -195,6 +210,22 @@ final class AdbLink {
             String why = r.length > 8 ? new String(r, 8, r.length - 8, StandardCharsets.UTF_8) : "no answer";
             throw new IOException("Copy to the TV failed: " + why);
         }
+    }
+
+    /** Sends whole packets from what is waiting (all of it when last), keeping the rest for next time. */
+    private void flushSync(ByteArrayOutputStream pending, int local, int remote, boolean last) throws IOException {
+        byte[] all = pending.toByteArray();
+        int off = 0;
+        while (all.length - off >= maxData || (last && off < all.length)) {
+            int n = Math.min(maxData, all.length - off);
+            byte[] piece = new byte[n];
+            System.arraycopy(all, off, piece, 0, n);
+            send(A_WRTE, local, remote, piece);
+            waitOkay(local);
+            off += n;
+        }
+        pending.reset();
+        pending.write(all, off, all.length - off);
     }
 
     private static byte[] syncHeader(String id, int value) {

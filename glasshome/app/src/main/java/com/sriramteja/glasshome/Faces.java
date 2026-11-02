@@ -28,8 +28,9 @@ import java.util.Locale;
  */
 final class Faces {
 
-    static final String[] IDS = {"glass", "noir", "neon", "analog", "minimal", "photo"};
-    static final String[] NAMES = {"Glass clock", "Noir", "Neon ring", "Analog watch", "Minimal", "Photo slideshow"};
+    static final String[] IDS = {"glass", "noir", "neon", "analog", "minimal", "photo", "dot", "material"};
+    static final String[] NAMES = {"Glass clock", "Noir", "Neon ring", "Analog watch", "Minimal", "Photo slideshow",
+            "Dot matrix", "Material"};
 
     /** What a face needs besides the settings. */
     static final class Scene {
@@ -70,6 +71,14 @@ final class Faces {
                     d.put("ss_dim", 20).put("ss_font", "thin").put("ss_clock_size", 8).put("ss_clock_top", 84)
                             .put("ss_align", "right").put("ss_sun", false).put("ss_seconds", false);
                     break;
+                case "dot":
+                    d.put("ss_dim", 88).put("ss_font", "medium").put("ss_clock_size", 26).put("ss_clock_top", 44)
+                            .put("ss_align", "center").put("ss_sun", false).put("ss_seconds", true).put("ss_color", "white");
+                    break;
+                case "material":
+                    d.put("ss_dim", 55).put("ss_font", "regular").put("ss_clock_size", 30).put("ss_clock_top", 50)
+                            .put("ss_align", "left").put("ss_sun", false).put("ss_seconds", false);
+                    break;
                 case "photo":
                     d.put("ss_dim", 0).put("ss_font", "light").put("ss_clock_size", 9).put("ss_clock_top", 84)
                             .put("ss_align", "left").put("ss_sun", false).put("ss_seconds", false);
@@ -95,6 +104,8 @@ final class Faces {
             case "glass": return f.b("ss_bubbles") ? 66 : f.b("ss_seconds") ? nextSecond : nextMinute;
             case "neon": return f.b("ss_smooth") ? 50 : nextSecond;
             case "analog": return !f.b("ss_seconds") ? nextMinute : f.b("ss_smooth") ? 50 : nextSecond;
+            case "dot": return f.b("ss_seconds") ? nextSecond : nextMinute;
+            case "material": return nextMinute;
             default: // noir, minimal: seconds roll for under half a second, then nothing moves
                 return !f.b("ss_seconds") ? nextMinute : rolling ? 33 : nextSecond;
         }
@@ -226,6 +237,8 @@ final class Faces {
             case "analog": analog(c, w, h, sc); break;
             case "minimal": corner(c, w, h, sc, false); break;
             case "photo": corner(c, w, h, sc, true); break;
+            case "dot": dotFace(c, w, h, sc); break;
+            case "material": material(c, w, h, sc); break;
             default: glass(c, w, h, sc); break;
         }
     }
@@ -596,6 +609,170 @@ final class Faces {
         c.drawLine(cx - dx * tail + sh, cy - dy * tail + sh, cx + dx * len + sh, cy + dy * len + sh, line);
         line.setColor(color);
         c.drawLine(cx - dx * tail, cy - dy * tail, cx + dx * len, cy + dy * len, line);
+    }
+
+    // ------------------------------------------------------------------ dot matrix lettering
+
+    /** 5 x 7 dot letters: each row is 5 bits, left dot = 16. */
+    private static final java.util.Map<Character, int[]> DOTS = new java.util.HashMap<>();
+
+    static {
+        String[] g = {
+                "0", "14,17,19,21,25,17,14", "1", "4,12,4,4,4,4,14", "2", "14,17,1,2,4,8,31", "3", "31,2,4,2,1,17,14",
+                "4", "2,6,10,18,31,2,2", "5", "31,16,30,1,1,17,14", "6", "6,8,16,30,17,17,14", "7", "31,1,2,4,8,8,8",
+                "8", "14,17,17,14,17,17,14", "9", "14,17,17,15,1,2,12",
+                "A", "14,17,17,31,17,17,17", "B", "30,17,17,30,17,17,30", "C", "14,17,16,16,16,17,14",
+                "D", "28,18,17,17,17,18,28", "E", "31,16,16,30,16,16,31", "F", "31,16,16,30,16,16,16",
+                "G", "14,17,16,23,17,17,15", "H", "17,17,17,31,17,17,17", "I", "14,4,4,4,4,4,14",
+                "J", "7,2,2,2,2,18,12", "K", "17,18,20,24,20,18,17", "L", "16,16,16,16,16,16,31",
+                "M", "17,27,21,21,17,17,17", "N", "17,17,25,21,19,17,17", "O", "14,17,17,17,17,17,14",
+                "P", "30,17,17,30,16,16,16", "Q", "14,17,17,17,21,18,13", "R", "30,17,17,30,20,18,17",
+                "S", "15,16,16,14,1,1,30", "T", "31,4,4,4,4,4,4", "U", "17,17,17,17,17,17,14",
+                "V", "17,17,17,17,17,10,4", "W", "17,17,17,21,21,21,10", "X", "17,17,10,4,10,17,17",
+                "Y", "17,17,10,4,4,4,4", "Z", "31,1,2,4,8,16,31",
+                ":", "0,12,12,0,12,12,0", ".", "0,0,0,0,0,12,12", "-", "0,0,0,31,0,0,0", "/", "1,1,2,4,8,16,16",
+                "%", "24,25,2,4,8,19,3", "°", "12,18,18,12,0,0,0", "+", "0,4,4,31,4,4,0", ",", "0,0,0,0,12,4,8",
+                "'", "12,4,8,0,0,0,0", "!", "4,4,4,4,4,0,4", "?", "14,17,1,2,4,0,4", "&", "12,18,20,8,21,18,13",
+                "(", "2,4,8,8,8,4,2", ")", "8,4,2,2,2,4,8", "·", "0,0,0,12,12,0,0"};
+        for (int i = 0; i + 1 < g.length; i += 2) {
+            String[] p = g[i + 1].split(",");
+            int[] rows = new int[7];
+            for (int k = 0; k < 7; k++) rows[k] = Integer.parseInt(p[k]);
+            DOTS.put(g[i].charAt(0), rows);
+        }
+    }
+
+    /** Width of dot lettering whose dots sit on a grid of 'cell' (letters are 7 cells high). */
+    static float dotsWidth(String s, float cell) {
+        if (s == null || s.isEmpty()) return 0;
+        float w = 0;
+        for (int i = 0; i < s.length(); i++) {
+            char ch = s.charAt(i);
+            w += (ch == ' ' ? 4 : ch == ':' || ch == '.' || ch == ',' || ch == '\'' || ch == '!' ? 4 : 6) * cell;
+        }
+        return w - cell;
+    }
+
+    /** Draws dot lettering with its top-left at (x, top); off dots faintly when ghost > 0 (0..255). */
+    static float dots(Canvas c, String s, float x, float top, float cell, int color, int ghost) {
+        if (s == null) return 0;
+        Paint p = new Paint(Paint.ANTI_ALIAS_FLAG);
+        float r = cell * 0.4f;
+        float cx = x;
+        String up = s.toUpperCase(Locale.ROOT);
+        for (int i = 0; i < up.length(); i++) {
+            char ch = up.charAt(i);
+            if (ch == ' ') {
+                cx += 4 * cell;
+                continue;
+            }
+            int[] rows = DOTS.get(ch);
+            boolean narrow = ch == ':' || ch == '.' || ch == ',' || ch == '\'' || ch == '!';
+            int cols = narrow ? 3 : 5, shift = narrow ? 1 : 0;
+            if (rows != null) {
+                for (int row = 0; row < 7; row++) {
+                    for (int col = 0; col < cols; col++) {
+                        boolean on = (rows[row] & (16 >> (col + shift))) != 0;
+                        if (!on && ghost <= 0) continue;
+                        p.setColor(on ? color : withAlpha(color, ghost));
+                        c.drawCircle(cx + col * cell + cell / 2f, top + row * cell + cell / 2f, r, p);
+                    }
+                }
+            }
+            cx += (narrow ? 4 : 6) * cell;
+        }
+        return cx - x - cell;
+    }
+
+    /** Dot matrix: the time in big dots, the date in small ones, a red dot, the seconds as a dotted line. */
+    private void dotFace(Canvas c, int w, int h, Scene sc) {
+        int col = color(sc, Color.WHITE);
+        int red = accent(sc);
+        float size = h * f("ss_clock_size") / 100f;
+        float cell = size / 7f;
+        String tm = time(sc.now);
+        float tw = dotsWidth(tm, cell);
+        float x = alignX(w, tw);
+        float top = h * f("ss_clock_top") / 100f - size / 2f;
+        dots(c, tm, x, top, cell, col, 0x16);
+        fill.setShader(null);
+        fill.setColor(red);
+        c.drawCircle(x + tw + cell * 2.2f, top + cell * 0.5f, cell * 0.75f, fill);
+        float y = top + size + h * 0.05f;
+        if (b("ss_date")) {
+            float dc = h * 0.006f;
+            String d = fmt("EEE dd MMM", sc.now);
+            float dw = dotsWidth(d, dc);
+            dots(c, d, "center".equals(s("ss_align")) ? (w - dw) / 2f : x, y, dc, withAlpha(col, 0xCC), 0);
+            y += dc * 7 + h * 0.045f;
+        }
+        if (b("ss_seconds")) {
+            int secs = (int) ((sc.now / 1000) % 60);
+            float step = Math.min(tw / 60f, h * 0.014f);
+            float lw = step * 59;
+            float lx = "center".equals(s("ss_align")) ? (w - lw) / 2f : x;
+            for (int i = 0; i < 60; i++) {
+                fill.setColor(i <= secs ? (i == secs ? red : withAlpha(col, 0xB3)) : withAlpha(col, 0x26));
+                c.drawCircle(lx + i * step, y, Math.max(1.2f, step * 0.28f), fill);
+            }
+            y += h * 0.05f;
+        }
+        if (b("ss_weather") && sc.weather != null && !sc.weather.isEmpty()) {
+            float dc = h * 0.005f;
+            String wx = sc.weather.replace("  ", " ");
+            float ww = dotsWidth(wx, dc);
+            dots(c, wx, "center".equals(s("ss_align")) ? (w - ww) / 2f : x, y, dc, withAlpha(col, 0x99), 0);
+        }
+    }
+
+    /** Material: hours above minutes, very big and round, in tones of the wallpaper's colour. */
+    private void material(Canvas c, int w, int h, Scene sc) {
+        int ac = accent(sc);
+        int hourCol = Board.mix(ac, Color.WHITE, 0.62f), minCol = Board.mix(ac, Color.WHITE, 0.88f);
+        String col = s("ss_color");
+        if (!"auto".equals(col) && !col.isEmpty()) {
+            hourCol = color(sc, Color.WHITE);
+            minCol = Board.mix(hourCol, Color.WHITE, 0.5f);
+        }
+        float size = h * f("ss_clock_size") / 100f;
+        boolean h12 = "12".equals(cfg.optString("clock", "24"));
+        String hh = new SimpleDateFormat(h12 ? "h" : "HH", Locale.getDefault()).format(new Date(sc.now));
+        String mm = new SimpleDateFormat("mm", Locale.getDefault()).format(new Date(sc.now));
+        if (h12 && hh.length() == 1) hh = "0" + hh;
+        style(size * 1.32f, s("ss_font"), hourCol, -0.03f);
+        text.setShadowLayer(0, 0, 0, 0);
+        float hw = text.measureText(hh);
+        style(size * 1.32f, s("ss_font"), minCol, -0.03f);
+        text.setShadowLayer(0, 0, 0, 0);
+        float mw = text.measureText(mm);
+        float group = Math.max(hw, mw);
+        float x = alignX(w, group);
+        float mid = h * f("ss_clock_top") / 100f;
+        // a soft tonal disc behind the numbers
+        fill.setShader(new RadialGradient(x + group / 2f, mid, size * 1.6f,
+                new int[]{withAlpha(Board.mix(ac, Color.BLACK, 0.45f), 0x99), 0}, null, Shader.TileMode.CLAMP));
+        c.drawCircle(x + group / 2f, mid, size * 1.6f, fill);
+        fill.setShader(null);
+        text.setColor(hourCol);
+        c.drawText(hh, x + (group - hw) / 2f, mid - size * 0.06f, text);
+        text.setColor(minCol);
+        c.drawText(mm, x + (group - mw) / 2f, mid + size * 0.95f, text);
+        if (b("ss_date")) {
+            String d = fmt("EEE, dd MMM", sc.now);
+            style(h * 0.026f, "medium", Board.mix(ac, Color.BLACK, 0.78f), 0.04f);
+            text.setShadowLayer(0, 0, 0, 0);
+            float dw = text.measureText(d);
+            float ph = h * 0.06f, px = x + (group - dw) / 2f - h * 0.03f, py = mid + size * 1.25f;
+            box.set(px, py, px + dw + h * 0.06f, py + ph);
+            fill.setColor(Board.mix(ac, Color.WHITE, 0.7f));
+            c.drawRoundRect(box, ph / 2f, ph / 2f, fill);
+            c.drawText(d, px + h * 0.03f, py + ph * 0.66f, text);
+        }
+        if (b("ss_weather") && sc.weather != null && !sc.weather.isEmpty()) {
+            style(h * 0.024f, "regular", withAlpha(Color.WHITE, 0xD9), 0.02f);
+            float ww = text.measureText(sc.weather);
+            c.drawText(sc.weather, x + (group - ww) / 2f, mid + size * 1.25f + h * 0.11f, text);
+        }
     }
 
     /** Minimal and Photo: a small clock in a corner; Photo slides and zooms the pictures slowly. */

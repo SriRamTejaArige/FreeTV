@@ -99,6 +99,25 @@ final class HomePreview extends View {
         return a != 0 ? a : 0xFF39E6FF;
     }
 
+    private boolean darkInk() {
+        return "dark".equals(cfg.optString("ink", "light"));
+    }
+
+    /** The theme's text colour (white, or dark on the light themes) with an alpha. */
+    private int ink(int a) {
+        return ((a & 0xFF) << 24) | (darkInk() ? 0x1F2430 : 0xFFFFFF);
+    }
+
+    private int focusBg() {
+        return darkInk() ? 0xFF2B3240 : 0xFFF5F5F7;
+    }
+
+    private int focusFg() {
+        return darkInk() ? Color.WHITE : 0xFF1C1C1E;
+    }
+
+    private boolean useWall = true;
+
     private int rawAccent() {
         String fixed = cfg.optString("accent", "auto");
         return "auto".equals(fixed) ? wallAccent : Faces.parse(fixed, wallAccent);
@@ -116,7 +135,20 @@ final class HomePreview extends View {
         c.clipPath(clip);
         c.drawColor(0xFF0B0D12);
         float dim = Math.max(0f, Math.min(0.9f, pct("wallpaper_dim", 0)));
-        drawCover(c, wall, 0, 0, w, h, dim);
+        String bgMode = cfg.optString("bg", "wallpaper");
+        useWall = "wallpaper".equals(bgMode);
+        if (useWall) {
+            drawCover(c, wall, 0, 0, w, h, dim);
+        } else {
+            int c1 = Faces.parse(cfg.optString("bg_color", "#0B0D12"), 0xFF0B0D12);
+            if ("gradient".equals(bgMode)) {
+                Paint g = new Paint();
+                g.setShader(new LinearGradient(0, 0, w, h, c1, Faces.parse(cfg.optString("bg_color2", ""), c1), Shader.TileMode.CLAMP));
+                c.drawRect(0, 0, w, h, g);
+            } else {
+                c.drawColor(c1);
+            }
+        }
 
         boolean right = "right".equals(cfg.optString("dock_side", "left"));
         float shade = Math.max(0f, Math.min(1f, pct("shade", 0)));
@@ -129,6 +161,24 @@ final class HomePreview extends View {
                     : new LinearGradient(0, 0, sw, 0, new int[]{a << 24, (a / 2) << 24, 0}, null, Shader.TileMode.CLAMP));
             c.drawRect(right ? W - sw : 0, 0, right ? W : sw, H, p);
         }
+        float bshade = Math.max(0f, Math.min(1f, pct("bottom_shade", 0)));
+        if (bshade > 0) {
+            int a = Math.round(0xE6 * bshade);
+            Paint p = new Paint();
+            p.setShader(new LinearGradient(0, H, 0, H * 0.45f, new int[]{a << 24, (a / 3) << 24, 0}, null, Shader.TileMode.CLAMP));
+            c.drawRect(0, H * 0.45f, W, H, p);
+        }
+        if (!Board.list(cfg).isEmpty()) {
+            Board.Data d = new Board.Data();
+            d.weather = "24°  Partly cloudy";
+            d.rise = 374;
+            d.set = 1064;
+            d.ram = 62;
+            d.disk = 54;
+            d.temp = 47;
+            d.accent = wallAccent;
+            new Board(cfg).draw(c, W, H, d);
+        }
         float edge = H * pct("edge", 4.5f);
         float pad = H * 0.022f;
         String ds = cfg.optString("dock_style", "icons");
@@ -139,6 +189,7 @@ final class HomePreview extends View {
             return;
         }
         if ("panel".equals(ds)) drawPanel(c, W, H, edge, pad, right, dim);
+        else if ("list".equals(ds)) drawList(c, W, H, edge, pad, right);
         else drawIcons(c, W, H, edge, pad, right);
         drawBar(c, W, H, edge, right, dim);
         c.restore();
@@ -163,7 +214,7 @@ final class HomePreview extends View {
         Path p = new Path();
         p.addRoundRect(r, radius, radius, Path.Direction.CW);
         c.clipPath(p);
-        if (wallBlur != null) {
+        if (wallBlur != null && useWall) {
             float bw = wallBlur.getWidth(), bh = wallBlur.getHeight();
             float scale = Math.max(W / bw, H / bh);
             float ox = (W - bw * scale) / 2f, oy = (H - bh * scale) / 2f;
@@ -305,8 +356,8 @@ final class HomePreview extends View {
             if (f && cfg.optBoolean("labels", true)) {
                 text.setTypeface(Faces.font("bold"));
                 text.setTextSize(s * pct("label_size", 24));
-                text.setColor(Color.WHITE);
-                text.setShadowLayer(H * 0.012f, 0, H * 0.002f, 0xB3000000);
+                text.setColor(ink(255));
+                if (!darkInk()) text.setShadowLayer(H * 0.012f, 0, H * 0.002f, 0xB3000000);
                 text.setLetterSpacing(0);
                 float tw = text.measureText(e.label == null ? "" : e.label);
                 float tx = right ? x + s - (iw + s * 0.42f) - tw : x + iw + s * 0.42f;
@@ -323,11 +374,12 @@ final class HomePreview extends View {
         float std = (W * 0.19f - 2 * pad) / 2f;
         float fit = n > 0 ? (panelH - 2 * pad - (n - 1) * gap) / n : std;
         float tileH = n > 0 && n <= 7 ? Math.min(fit, H * 0.2f) : std;
-        float tileW = tileH * 2;
+        float tileW = tileH * ("tonal".equals(cfg.optString("tile_style", "glass")) ? 2.8f : 2f);
         float panelW = tileW + 2 * pad;
         float px = right ? W - edge - panelW : edge;
         RectF panel = new RectF(px, edge, px + panelW, edge + panelH);
-        glass(c, panel, tileH * 0.30f + pad, W, H, 0x40C8CDD8, dim);
+        glass(c, panel, tileH * 0.30f + pad, W, H, "tonal".equals(cfg.optString("tile_style", "glass"))
+                ? Board.alpha(Board.tones(accent())[0], 0xC7) : darkInk() ? 0x73FFFFFF : 0x40C8CDD8, dim);
         c.save();
         c.clipRect(panel);
         for (int i = 0; i < n; i++) {
@@ -382,6 +434,11 @@ final class HomePreview extends View {
     private boolean styledTile(Canvas c, Entry e, RectF r, float rad, boolean rowMode, int index, int count, boolean on) {
         String style = cfg.optString("icon_style", "original");
         boolean boxed = cfg.optBoolean("tile_box", true);
+        String ts = cfg.optString("tile_style", "glass");
+        if ("plush".equals(ts) || "soft".equals(ts) || "tonal".equals(ts)) {
+            cushion(c, e, r, rowMode, on, ts);
+            return true;
+        }
         if (Packs.usesLogo(style)) {
             Bitmap[] lg = logo(e, style, index, count);
             if (lg == null || lg[0] == null) return false;
@@ -437,11 +494,135 @@ final class HomePreview extends View {
         return false;
     }
 
+    /** Plush, Soft and Material tiles: the app's icon and name on a coloured tile (as on the TV). */
+    private void cushion(Canvas c, Entry e, RectF r, boolean rowMode, boolean on, String ts) {
+        boolean tonal = "tonal".equals(ts), soft = "soft".equals(ts);
+        float H = getHeight();
+        float rad = tonal ? r.height() / 2f : r.height() * (rowMode ? 0.24f : 0.3f);
+        int ac = accent();
+        Paint p = new Paint(Paint.ANTI_ALIAS_FLAG);
+        int labelCol;
+        if (tonal) {
+            int[] t = Board.tones(ac);
+            p.setColor(on ? t[3] : Board.alpha(t[1], 0xEB));
+            c.drawRoundRect(r, rad, rad, p);
+            labelCol = on ? t[4] : t[2];
+        } else if (soft) {
+            int base = Faces.parse(cfg.optString("bg_color", "#E3E8EF"), 0xFFE3E8EF);
+            int dark = Board.mix(base, Color.BLACK, 0.22f);
+            float lift = on ? 1.8f : 1f;
+            for (int i = 4; i >= 1; i--) {
+                float s = H * 0.004f * i * lift;
+                p.setColor(Board.alpha(dark, 0x14));
+                c.drawRoundRect(r.left + s * 0.6f, r.top + s * 0.6f, r.right + s, r.bottom + s, rad + s, rad + s, p);
+                p.setColor(Board.alpha(Color.WHITE, 0x2E));
+                c.drawRoundRect(r.left - s, r.top - s, r.right - s * 0.6f, r.bottom - s * 0.6f, rad + s, rad + s, p);
+            }
+            p.setColor(Color.WHITE);
+            p.setShader(new LinearGradient(r.left, r.top, r.right, r.bottom, Board.mix(base, Color.WHITE, on ? 0.6f : 0.38f),
+                    Board.mix(base, Color.BLACK, 0.03f), Shader.TileMode.CLAMP));
+            c.drawRoundRect(r, rad, rad, p);
+            p.setShader(null);
+            labelCol = on ? Board.mix(ac, Color.BLACK, 0.2f) : 0xCC2B3240;
+        } else {
+            p.setColor(0x40000000);
+            c.drawRoundRect(r.left, r.top + H * 0.012f, r.right, r.bottom + H * 0.012f, rad, rad, p);
+            p.setColor(Color.WHITE);
+            p.setShader(new LinearGradient(0, r.top, 0, r.bottom, Board.mix(ac, Color.WHITE, on ? 0.5f : 0.64f),
+                    Board.mix(ac, Color.WHITE, on ? 0.2f : 0.38f), Shader.TileMode.CLAMP));
+            c.drawRoundRect(r, rad, rad, p);
+            p.setShader(null);
+            labelCol = Board.mix(ac, Color.BLACK, 0.72f);
+        }
+        String label = e.label == null ? "" : e.label;
+        text.setTypeface(Faces.font("bold"));
+        text.setLetterSpacing(0);
+        text.clearShadowLayer();
+        text.setColor(labelCol);
+        if (tonal) {
+            float s = r.height() * 0.58f;
+            RectF ir = new RectF(r.left + r.height() * 0.21f, r.centerY() - s / 2, r.left + r.height() * 0.21f + s, r.centerY() + s / 2);
+            if (e.icon != null) {
+                c.save();
+                Path cp = new Path();
+                cp.addOval(ir, Path.Direction.CW);
+                c.clipPath(cp);
+                c.drawBitmap(e.icon, null, ir, pic);
+                c.restore();
+            }
+            text.setTextSize(r.height() * 0.2f);
+            float room = r.right - ir.right - r.height() * 0.45f;
+            c.drawText(fit(label, room), ir.right + r.height() * 0.2f, r.centerY() + r.height() * 0.07f, text);
+        } else {
+            float s = r.height() * (soft ? 0.44f : 0.5f);
+            float top = r.centerY() - (s + r.height() * 0.2f) / 2f;
+            RectF ir = new RectF(r.centerX() - s / 2, top, r.centerX() + s / 2, top + s);
+            if (e.icon != null) {
+                c.save();
+                Path cp = new Path();
+                cp.addRoundRect(ir, s * 0.24f, s * 0.24f, Path.Direction.CW);
+                c.clipPath(cp);
+                c.drawBitmap(e.icon, null, ir, pic);
+                c.restore();
+            }
+            text.setTextSize(r.height() * 0.13f);
+            String l = fit(label, r.width() * 0.84f);
+            c.drawText(l, r.centerX() - text.measureText(l) / 2f, ir.bottom + r.height() * 0.07f + text.getTextSize() * 0.8f, text);
+        }
+    }
+
+    private String fit(String s, float width) {
+        if (text.measureText(s) <= width) return s;
+        String t = s;
+        while (t.length() > 1 && text.measureText(t + "…") > width) t = t.substring(0, t.length() - 1);
+        return t + "…";
+    }
+
+    /** Minimalist: the apps as a list of names; the chosen one bright and moved out, with an accent bar. */
+    private void drawList(Canvas c, float W, float H, float edge, float pad, boolean right) {
+        int n = apps.size();
+        if (n == 0) return;
+        float s = H * 0.072f, gap = H * 0.012f;
+        float colH = H - 2 * edge, room = colH - 2 * pad;
+        if (n * s + (n - 1) * gap > room) s = Math.max(H * 0.045f, (room - (n - 1) * gap) / n);
+        float used = n * s + (n - 1) * gap;
+        float top = edge + Math.max(pad, (colH - used) / 2f);
+        float x = right ? W - edge - pad : edge + pad;
+        String f = cfg.optString("title_font", "light");
+        if ("dot".equals(f)) f = "light";
+        float idle = pct("icon_idle", 40);
+        for (int i = 0; i < n; i++) {
+            boolean on = !focusBar && i == focus;
+            float cy = top + i * (s + gap) + s / 2f;
+            String label = apps.get(i).label == null ? "" : apps.get(i).label;
+            text.setTypeface(Faces.font(f));
+            text.setTextSize(s * 0.62f);
+            text.setLetterSpacing(0);
+            text.setColor(ink(Math.round(255 * (on ? 1f : idle))));
+            if (!darkInk()) text.setShadowLayer(H * 0.01f, 0, H * 0.002f, 0x99000000);
+            else text.clearShadowLayer();
+            float tw = text.measureText(label);
+            float slide = on ? H * 0.018f : 0f;
+            float tx = right ? x - H * 0.035f - tw - slide : x + H * 0.035f + slide;
+            c.drawText(label, tx, cy + text.getTextSize() * 0.36f, text);
+            text.clearShadowLayer();
+            if (on) {
+                fill.setShader(null);
+                fill.setColor(accent());
+                float bw = Math.max(2f, H * 0.007f), bh = s * 0.55f;
+                float bx = right ? x - bw : x;
+                c.drawRoundRect(bx, cy - bh / 2, bx + bw, cy + bh / 2, bw, bw, fill);
+            }
+        }
+    }
+
     /** The Clean theme: one row of app banners in a band, the selected app's name big above it. */
     private void drawRow(Canvas c, float W, float H, float dim) {
         float side = W * 0.06f, bandW = W - 2 * side, pad = H * 0.022f, gap = H * 0.033f;
         int visible = Math.max(2, Math.min(7, cfg.optInt("row_visible", 4)));
-        float tileW = (bandW - 2 * pad - (visible - 1) * gap) / visible, tileH = tileW * 0.5625f;
+        String ts = cfg.optString("tile_style", "glass");
+        float ratio = "plush".equals(ts) ? 0.78f : "soft".equals(ts) ? 0.7f : "tonal".equals(ts) ? 0.5f : 0.5625f;
+        float tileW = (bandW - 2 * pad - (visible - 1) * gap) / visible, tileH = tileW * ratio;
         float bandTop = H * pct("row_top", 64.5f), bandH = tileH + 2 * pad;
         RectF band = new RectF(side, bandTop, side + bandW, bandTop + bandH);
         if (cfg.optBoolean("row_band", true)) glass(c, band, tileH * 0.22f + pad, W, H, 0x99121318, dim);
@@ -489,14 +670,18 @@ final class HomePreview extends View {
         }
         c.restore();
         if (cfg.optBoolean("row_title", true) && f >= 0 && f < n) {
-            text.setTypeface(Faces.font(cfg.optString("title_font", "light")));
-            text.setTextSize(H * 0.075f);
-            text.setLetterSpacing(0);
-            text.setColor(Color.WHITE);
-            text.setShadowLayer(H * 0.015f, 0, H * 0.003f, 0x80000000);
             String name = apps.get(f).label == null ? "" : apps.get(f).label;
-            c.drawText(name, side + pad, bandTop - H * 0.135f + H * 0.075f * 0.95f, text);
-            text.clearShadowLayer();
+            if ("dot".equals(cfg.optString("title_font", "light"))) {
+                Faces.dots(c, name, side + pad, bandTop - H * 0.12f, H * 0.075f * 0.72f / 7f, ink(255), 0);
+            } else {
+                text.setTypeface(Faces.font(cfg.optString("title_font", "light")));
+                text.setTextSize(H * 0.075f);
+                text.setLetterSpacing(0);
+                text.setColor(ink(255));
+                if (!darkInk()) text.setShadowLayer(H * 0.015f, 0, H * 0.003f, 0x80000000);
+                c.drawText(name, side + pad, bandTop - H * 0.135f + H * 0.075f * 0.95f, text);
+                text.clearShadowLayer();
+            }
         }
     }
 
@@ -512,16 +697,33 @@ final class HomePreview extends View {
             text.setTypeface(Faces.font("bold"));
             text.setTextSize(H * 0.022f);
             text.setLetterSpacing(0.25f);
-            text.setColor(0xBFFFFFFF);
+            text.setColor(ink(0xBF));
             c.drawText(g, side, y + H * 0.022f * 0.95f, text);
             y += H * 0.022f * 1.25f;
         }
         float x = side;
         float ts = H * 0.105f * pct("clock_scale", 100);
         float base = y + ts * 0.93f;
-        if (cfg.optBoolean("bar_clock", true)) {
+        boolean dotClock = "dot".equals(cfg.optString("clock_style", "text"));
+        if (cfg.optBoolean("bar_clock", true) && dotClock) {
             String cc = cfg.optString("clock_color", "white");
-            int col = "accent".equals(cc) ? accent() : "white".equals(cc) ? Color.WHITE : Faces.parse(cc, Color.WHITE);
+            int col = "accent".equals(cc) ? accent() : "white".equals(cc) ? ink(255) : Faces.parse(cc, ink(255));
+            float cell = ts * 0.72f / 7f;
+            String tm = new SimpleDateFormat(h12 ? "h:mm" : "HH:mm", Locale.getDefault()).format(now);
+            x += Faces.dots(c, tm, x, base - cell * 7, cell, col, 0x14);
+            if (cfg.optBoolean("seconds", false)) {
+                float sc = cell * 0.42f;
+                x += cell * 2.5f;
+                x += Faces.dots(c, new SimpleDateFormat("ss", Locale.US).format(now), x, base - sc * 7, sc, Faces.withAlpha(col, 0xB3), 0);
+            }
+            x += H * 0.03f;
+            fill.setShader(null);
+            fill.setColor(ink(0x4D));
+            c.drawRect(x, base - H * 0.061f, x + Math.max(1f, H * 0.0015f), base - H * 0.006f, fill);
+            x += H * 0.03f;
+        } else if (cfg.optBoolean("bar_clock", true)) {
+            String cc = cfg.optString("clock_color", "white");
+            int col = "accent".equals(cc) ? accent() : "white".equals(cc) ? ink(255) : Faces.parse(cc, ink(255));
             text.setTypeface(Faces.font(cfg.optString("clock_font", "light")));
             text.setTextSize(ts);
             text.setLetterSpacing(0);
@@ -538,7 +740,7 @@ final class HomePreview extends View {
             if (h12) {
                 text.setTypeface(Faces.font("medium"));
                 text.setTextSize(H * 0.03f);
-                text.setColor(0xD9FFFFFF);
+                text.setColor(ink(0xD9));
                 x += H * 0.012f;
                 String ap = new SimpleDateFormat("a", Locale.getDefault()).format(now).toUpperCase(Locale.getDefault());
                 c.drawText(ap, x, base - H * 0.012f, text);
@@ -546,14 +748,14 @@ final class HomePreview extends View {
             }
             x += H * 0.03f;
             fill.setShader(null);
-            fill.setColor(0x4DFFFFFF);
+            fill.setColor(ink(0x4D));
             c.drawRect(x, base - H * 0.061f, x + Math.max(1f, H * 0.0015f), base - H * 0.006f, fill);
             x += H * 0.03f;
         }
         text.setTypeface(Faces.font("medium"));
         text.setTextSize(H * 0.026f);
         text.setLetterSpacing(0.15f);
-        text.setColor(0xD9FFFFFF);
+        text.setColor(ink(0xD9));
         boolean wx = cfg.optBoolean("bar_weather", true);
         float dateBase = wx ? base - H * 0.04f : base - H * 0.008f;
         c.drawText(new SimpleDateFormat("EEEE  dd MMMM", Locale.getDefault()).format(now).toUpperCase(Locale.getDefault()),
@@ -561,7 +763,7 @@ final class HomePreview extends View {
         if (wx) {
             text.setTextSize(H * 0.024f);
             text.setLetterSpacing(0.08f);
-            text.setColor(0xBFFFFFFF);
+            text.setColor(ink(0xBF));
             c.drawText("24°  Partly cloudy", x, base - H * 0.006f, text);
         }
         text.setLetterSpacing(0);
@@ -589,24 +791,24 @@ final class HomePreview extends View {
             boolean on = focusBar && i == focus;
             RectF r = new RectF(px, py, px + widths[i], py + h);
             Paint bgp = new Paint(Paint.ANTI_ALIAS_FLAG);
-            bgp.setColor(on ? 0xFFF5F5F7 : 0x59202226);
+            bgp.setColor(on ? focusBg() : darkInk() ? 0x73FFFFFF : 0x59202226);
             c.drawRoundRect(r, h / 2, h / 2, bgp);
             if (!on) {
                 Paint st = new Paint(Paint.ANTI_ALIAS_FLAG);
                 st.setStyle(Paint.Style.STROKE);
                 st.setStrokeWidth(Math.max(1f, H * 0.0015f));
-                st.setColor(0x4DFFFFFF);
+                st.setColor(darkInk() ? 0x1F000000 : 0x4DFFFFFF);
                 c.drawRoundRect(r, h / 2, h / 2, st);
             }
             Drawable ic = getContext().getDrawable(buttonIcon(buttons.get(i)));
             float s = h * 0.42f, ix = px + h * 0.36f;
             if (ic != null) {
                 ic = ic.mutate();
-                ic.setTint(on ? 0xFF1C1C1E : Color.WHITE);
+                ic.setTint(on ? focusFg() : ink(255));
                 ic.setBounds(Math.round(ix), Math.round(r.centerY() - s / 2), Math.round(ix + s), Math.round(r.centerY() + s / 2));
                 ic.draw(c);
             }
-            pt.setColor(on ? 0xFF1C1C1E : Color.WHITE);
+            pt.setColor(on ? focusFg() : ink(255));
             Paint.FontMetrics fm = pt.getFontMetrics();
             c.drawText(labels[i], ix + s + h * 0.2f, r.centerY() - (fm.ascent + fm.descent) / 2f, pt);
             px += widths[i] + h * 0.25f;
@@ -641,35 +843,46 @@ final class HomePreview extends View {
         text.setTypeface(Faces.font(cfg.optString("clock_font", "medium")));
         text.setTextSize(hb * 0.46f * scale);
         text.setLetterSpacing(0);
-        float tw = clock ? text.measureText(tm) : 0;
+        boolean dotClock = "dot".equals(cfg.optString("clock_style", "text"));
+        float dcell = hb * 0.46f * scale * 0.72f / 7f;
+        float tw = clock ? (dotClock ? Faces.dotsWidth(tm, dcell) : text.measureText(tm)) : 0;
         Paint sp = new Paint(text);
         sp.setTextSize(hb * 0.32f * Math.max(0.8f, scale * 0.7f));
-        float sw = secs ? sp.measureText("00") * 1.08f : 0;
+        float sw = secs ? (dotClock ? Faces.dotsWidth("00", dcell * 0.42f) + dcell * 1.5f : sp.measureText("00") * 1.08f) : 0;
         boolean wx = cfg.optBoolean("bar_weather", true);
         String wtxt = "24°  Partly cloudy";
         Paint wp = new Paint(Paint.ANTI_ALIAS_FLAG);
         wp.setTypeface(Faces.font("medium"));
         wp.setTextSize(hb * 0.3f);
-        wp.setColor(0xE6FFFFFF);
+        wp.setColor(ink(0xE6));
         float ww = wx ? wp.measureText(wtxt) + hb * 0.3f : 0;
         float width = padL + (clock ? tw + (secs ? hb * 0.08f + sw + hb * 0.3f : hb * 0.26f) : 0)
                 + ww + buttons.size() * d * 1.2f + padR;
         float x0 = right ? edge : W - edge - width;
         RectF bar = new RectF(x0, edge, x0 + width, edge + hb);
-        if (!bare) glass(c, bar, hb / 2f, W, H, 0x4A9AA3B5, dim);
+        if (!bare) glass(c, bar, hb / 2f, W, H, "tonal".equals(cfg.optString("tile_style", "glass"))
+                ? Board.alpha(Board.tones(accent())[0], 0xC7) : darkInk() ? 0x8CFFFFFF : 0x4A9AA3B5, dim);
         float cy = bar.centerY();
         float x = x0 + padL;
         if (clock) {
             String cc = cfg.optString("clock_color", "white");
-            int col = "accent".equals(cc) ? accent() : "white".equals(cc) ? Color.WHITE : Faces.parse(cc, Color.WHITE);
+            int col = "accent".equals(cc) ? accent() : "white".equals(cc) ? ink(255) : Faces.parse(cc, ink(255));
             text.setColor(col);
-            if (bare) text.setShadowLayer(hb * 0.12f, 0, hb * 0.02f, 0x99000000);
+            if (bare && !darkInk()) text.setShadowLayer(hb * 0.12f, 0, hb * 0.02f, 0x99000000);
             Paint.FontMetrics fm = text.getFontMetrics();
             float base = cy - (fm.ascent + fm.descent) / 2f;
-            c.drawText(tm, x, base, text);
+            if (dotClock) {
+                Faces.dots(c, tm, x, cy - dcell * 3.5f, dcell, col, 0x14);
+                if (secs) Faces.dots(c, new SimpleDateFormat("ss", Locale.US).format(new Date()), x + tw + dcell * 2.5f,
+                        cy + dcell * 3.5f - dcell * 0.42f * 7, dcell * 0.42f, Faces.withAlpha(col, 0xB3), 0);
+            } else {
+                c.drawText(tm, x, base, text);
+            }
             text.clearShadowLayer();
             x += tw;
-            if (secs) {
+            if (secs && dotClock) {
+                x += sw + hb * 0.3f;
+            } else if (secs) {
                 x += hb * 0.08f;
                 sp.setColor(col);
                 sp.setAlpha(0xCC);
@@ -681,7 +894,7 @@ final class HomePreview extends View {
         }
         if (wx) {
             Paint.FontMetrics fm = wp.getFontMetrics();
-            if (bare) wp.setShadowLayer(hb * 0.12f, 0, hb * 0.02f, 0x99000000);
+            if (bare && !darkInk()) wp.setShadowLayer(hb * 0.12f, 0, hb * 0.02f, 0x99000000);
             c.drawText(wtxt, x, cy - (fm.ascent + fm.descent) / 2f, wp);
             x += ww;
         }
@@ -692,7 +905,7 @@ final class HomePreview extends View {
             boolean f = focusBar && i == focus;
             float k = f ? 1.12f : 1f;
             fill.setShader(null);
-            int bg = f ? 0xFFF5F5F7 : "music".equals(which) ? 0xFFFA2D48 : bare ? 0 : 0x2EFFFFFF;
+            int bg = f ? focusBg() : "music".equals(which) ? 0xFFFA2D48 : bare ? 0 : darkInk() ? 0x1A000000 : 0x2EFFFFFF;
             if (bg != 0) {
                 fill.setColor(bg);
                 c.drawCircle(bx, cy, d * k / 2f, fill);
@@ -700,7 +913,7 @@ final class HomePreview extends View {
             Drawable ic = getContext().getDrawable(buttonIcon(which));
             if (ic != null) {
                 ic = ic.mutate();
-                ic.setTint(f ? 0xFF1C1C1E : Color.WHITE);
+                ic.setTint(f ? focusFg() : "music".equals(which) ? Color.WHITE : ink(255));
                 float s = d * 0.58f * k;
                 ic.setBounds(Math.round(bx - s / 2), Math.round(cy - s / 2), Math.round(bx + s / 2), Math.round(cy + s / 2));
                 ic.draw(c);

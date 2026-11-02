@@ -66,18 +66,30 @@ public class MainActivity extends Activity {
 
     private static final int BG = 0xFF06060C, CARD = 0x1FFFFFFF, LINE = 0x33FFFFFF, TEXT = 0xFFFFFFFF,
             DIM = 0xA6FFFFFF, ACCENT = 0xFFA78BFA, GOOD = 0xFF34D399, BAD = 0xFFFB7185;
-    private static final int PICK = 41;
+    private static final int PICK = 41, PICK_APK = 42;
     private static final String[] TABS = {"Remote", "Themes", "Design", "Walls", "Saver", "More"};
     private static final int[] TAB_ICONS = {R.drawable.f_remote, R.drawable.f_spark, R.drawable.f_palette,
             R.drawable.f_image, R.drawable.f_moon, R.drawable.f_grid};
-    private static final String[] THEME_NAMES = {"Clean", "Glass", "Float", "Noir", "Neon", "Minimal"};
+    private static final String[] THEME_NAMES = Themes.NAMES;
     private static final String[] THEME_TEXT = {
             "Your first clean TV look: big clock and date top left, Inputs and Settings pills, the apps in one row of banners with the selected app's name above.",
-            "Frosted glass panel with the apps' banners and a glass pill for the clock. The Spider-Man look.",
+            "A frosted glass panel with the apps' banners and a glass pill for the clock.",
             "App icons floating on the wallpaper, the name beside the selected one. Clean and colourful.",
             "Dark wallpapers, white logo icons, a soft spotlight that follows you, rolling seconds.",
             "Logos in the wallpaper's own colour with a neon halo on the selected app, thin accent clock.",
-            "Small white logos, no names, calm dimmed wallpaper, thin clock. Nothing extra."};
+            "Small white logos, no names, calm dimmed wallpaper, thin clock. Nothing extra.",
+            "Big pastel cushions coloured from your wallpaper, each with the app's icon and name. Soft, friendly and bold.",
+            "Your wallpaper edge to edge: a huge thin clock, white logos floating along the bottom with a glow.",
+            "Bright and airy by day, dark Noir by night. It switches by itself at the hours you choose.",
+            "Soft UI: one calm light colour, pillowy tiles that rise when chosen, dark text and a calendar.",
+            "Black, white logos and dotted lettering for the clock and app names, with one red dot.",
+            "Tones taken from your wallpaper: pill-shaped tiles in a tonal panel, a friendly clock, date and weather at a glance.",
+            "Only words: your apps as a list of names. The chosen one slides out with an accent bar."};
+    private static final String[] THEME_TAG = {"Row of banners", "Glass panel", "Floating icons", "Dark spotlight",
+            "Neon halo", "Quiet logos", "Pastel cushions", "Edge to edge", "Changes with the sun", "Light and soft",
+            "Dotted display", "Tonal pills", "Just names"};
+    private static final String[] BG_SWATCHES = {"#000000", "#0B0D12", "#14161F", "#1B2A44", "#2A1B3D", "#123D3A",
+            "#E3E8EF", "#F4F1EA", "#D9E9F8", "#FCEFE2", "#E8F5E9", "#FDE2E4"};
     private static final String[] DEFAULT_DOCK = {"com.google.android.youtube.tv", "com.netflix.ninja",
             "in.startv.hotstar", "com.amazon.amazonvideo.livingroom", "org.videolan.vlc", "com.android.vending"};
     private static final String[] SWATCHES = {"#FFFFFF", "#39E6FF", "#22B8F0", "#3E63DD", "#8E4EC6", "#E54DD0",
@@ -109,6 +121,17 @@ public class MainActivity extends Activity {
     private final List<View> tabs = new ArrayList<>();
     private int currentTab, contentW;
     private String sub = "", designSeg = "layout";
+    /** The theme opened from the Themes grid (null: the grid). */
+    private String themeOpen;
+    /** The app being sent to the TV (Install apps). */
+    private File apkFile;
+    private String apkName = "", apkLabel = "", apkPkg = "", apkVersion = "", installMsg = "";
+    private android.graphics.drawable.Drawable apkIcon;
+    private boolean installing, apkBundle;
+    private Boolean installOk;
+    private float installK = -1f;
+    private View installFill;
+    private TextView installText;
     private int setupStep;
     private final List<String> found = new ArrayList<>();
     private final Runnable hideSnack = () -> {
@@ -230,6 +253,12 @@ public class MainActivity extends Activity {
         styleSend();
 
         int startTab = getIntent().getIntExtra("tab", -1);
+        themeOpen = getIntent().getStringExtra("theme");
+        Uri shared = sharedApk(getIntent());
+        if (shared != null) {
+            getIntent().putExtra("sub", "install");
+            prepareApk(shared);
+        }
         String startSub = getIntent().getStringExtra("sub");
         if (startSub != null) {
             sub = startSub;
@@ -354,6 +383,7 @@ public class MainActivity extends Activity {
             switch (sub) {
                 case "system": title = "TV and connection"; buildSubHeader(title); buildSystem(); break;
                 case "apps": title = "Apps on the TV"; buildSubHeader(title); buildApps(); break;
+                case "install": title = "Install apps on the TV"; buildSubHeader(title); buildInstall(); break;
                 case "presets": title = "Presets and backup"; buildSubHeader(title); buildPresets(); break;
                 case "about": title = "About"; buildSubHeader(title); buildAbout(); break;
                 default: title = "Set up a TV"; buildSetup(); break;
@@ -502,6 +532,7 @@ public class MainActivity extends Activity {
                 main.post(() -> {
                     status("Connected to " + (s.model.isEmpty() ? host : s.model) + ". Getting the TV's apps and pictures...", GOOD);
                     styleSend();
+                    if (apkFile != null && !installing && installOk == null) startInstall();
                     if (after != null) after.run();
                     else if (currentTab == 0 || (currentTab == 5 && "system".equals(sub))) refreshTab();
                 });
@@ -1131,90 +1162,187 @@ public class MainActivity extends Activity {
     // ------------------------------------------------------------------ Themes tab
 
     /** Keys a theme decides; picking a theme clears them so its own look shows in full. */
-    private static final String[] STYLE_KEYS = {"dock_style", "dock_side", "icon_style", "icon_size", "icon_gap",
+    static final String[] STYLE_KEYS = {"bg", "bg_color", "bg_color2", "ink", "tile_style", "clock_style", "bottom_shade",
+            "widget_style", "dock_style", "dock_side", "icon_style", "icon_size", "icon_gap",
             "icon_idle", "focus_scale", "labels", "label_size", "focus_ring", "glow", "glow_color", "glow_strength",
             "glow_size", "accent", "wallpaper_dim", "dark_only", "dark_level", "shade", "bar_style", "bar_clock",
             "clock_font", "clock_scale", "clock_color", "seconds", "edge", "screensaver", "eyes", "bar_weather",
             "row_visible", "row_top", "row_band", "row_title", "title_font", "greeting", "tile_box"};
 
     private void buildThemes() {
-        page.addView(note("Swipe through the looks. Your apps, wallpapers and buttons stay; the look changes. "
-                + "Tap a picture to move the selection."));
         boolean classic = homeNow.startsWith(Tv.CLEAN);
         String now = classic ? "" : merged().optString("theme", "glass");
-        int itemW = Math.round(contentW * 0.84f);
-        int side = (contentW - px(28) - itemW) / 2;
-        Carousel car = new Carousel(this);
-        LinearLayout strip = new LinearLayout(this);
-        strip.setPadding(side, px(6), side, px(10));
-        strip.setClipToPadding(false);
-        car.addView(strip);
-        int nowIndex = 0;
+        if (themeOpen != null && Arrays.asList(Themes.IDS).contains(themeOpen)) {
+            buildThemeDetail(themeOpen, now);
+            return;
+        }
+        themeOpen = null;
+        page.addView(note(Themes.IDS.length + " looks for your TV. Tap one to see it big and use it. Your apps, "
+                + "wallpapers and widgets stay."));
+        LinearLayout line = null;
         for (int i = 0; i < Themes.IDS.length; i++) {
-            String id = Themes.IDS[i];
-            if (id.equals(now)) nowIndex = i;
-            final String themeName = THEME_NAMES[i];
-            GlassCard c = new GlassCard(this, px(28), CARD);
-            c.setPadding(px(14), px(14), px(14), px(16));
-            LinearLayout head = row();
-            head.setGravity(Gravity.CENTER_VERTICAL);
-            TextView name = text(themeName, 22, TEXT, true);
-            name.setTypeface(Fx.font(800));
-            head.addView(name, new LinearLayout.LayoutParams(0, -2, 1f));
-            if (id.equals(now)) {
-                TextView badge = text("IN USE", 11, TEXT, true);
-                badge.setLetterSpacing(0.1f);
-                badge.setPadding(px(10), px(4), px(10), px(4));
-                badge.setBackground(Fx.brand(px(12)));
-                head.addView(badge);
+            if (i % 2 == 0) {
+                line = row();
+                line.setPadding(0, 0, 0, 0);
+                page.addView(line);
             }
-            c.addView(head);
+            String id = Themes.IDS[i];
+            boolean inUse = id.equals(now);
+            GlassCard cell = new GlassCard(this, px(22), inUse ? 0x2EA78BFA : CARD);
+            cell.setPadding(px(7), px(7), px(7), px(10));
             HomePreview p = new HomePreview(this, logos);
             JSONObject m = themeLook(id);
             p.set(m, previewWall(m), dockEntries(m));
-            p.setOnClickListener(v -> p.setFocus((int) (Math.random() * Math.max(1, dockEntries(m).size())), false));
-            LinearLayout.LayoutParams hp = new LinearLayout.LayoutParams(-1, -2);
-            hp.topMargin = px(8);
-            c.addView(p, hp);
-            LinearLayout info = row();
-            info.setGravity(Gravity.CENTER_VERTICAL);
-            FacePreview f = new FacePreview(this);
-            f.set(m.optString("face", "glass"), m, previewWall(m), slides(m));
-            info.addView(f, new LinearLayout.LayoutParams(px(110), -2));
-            TextView d = text(THEME_TEXT[i], 13, DIM, false);
-            d.setPadding(px(12), 0, 0, 0);
-            info.addView(d, new LinearLayout.LayoutParams(0, -2, 1f));
-            c.addView(info);
-            LinearLayout r = row();
-            r.addView(button(id.equals(now) ? "Reset its look" : "Use " + themeName, !id.equals(now), v -> {
-                for (String k : STYLE_KEYS) raw.remove(k);
-                raw.remove("faces");
-                try {
-                    raw.put("theme", id);
-                } catch (JSONException ignored) { }
-                changed();
-                status(themeName + " theme set. Your apps and wallpapers stay.", GOOD);
-                if (connected && !homeNow.startsWith(Tv.GLASS)) {
-                    work("Switching the TV to Glass Home...", () -> {
-                        String done = tv.useGlass();
-                        homeNow = Tv.GLASS_HOME;
-                        return themeName + " theme on. " + done;
-                    }, this::refreshTab);
-                } else {
-                    refreshTab();
-                }
-            }));
-            c.addView(r);
-            LinearLayout.LayoutParams cl = new LinearLayout.LayoutParams(itemW, -2);
-            cl.setMargins(px(7), 0, px(7), 0);
-            strip.addView(c, cl);
+            p.setClickable(false);
+            cell.addView(p);
+            LinearLayout nameRow = row();
+            nameRow.setGravity(Gravity.CENTER_VERTICAL);
+            nameRow.setPadding(px(5), px(8), px(4), 0);
+            TextView n = text(THEME_NAMES[i], 15, TEXT, true);
+            n.setTypeface(Fx.font(700));
+            nameRow.addView(n, new LinearLayout.LayoutParams(0, -2, 1f));
+            if (inUse) {
+                View dot = new View(this);
+                dot.setBackground(Fx.brand(px(5)));
+                nameRow.addView(dot, new LinearLayout.LayoutParams(px(10), px(10)));
+            }
+            cell.addView(nameRow);
+            TextView tag = text(inUse ? "In use  ·  " + THEME_TAG[i] : THEME_TAG[i], 11.5f, inUse ? ACCENT : DIM, false);
+            tag.setPadding(px(5), px(1), px(4), 0);
+            tag.setSingleLine(true);
+            cell.addView(tag);
+            cell.setOnClickListener(v -> {
+                themeOpen = id;
+                showTab(1);
+            });
+            Fx.press(cell);
+            LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(0, -2, 1f);
+            lp.setMargins(px(5), px(6), px(5), px(6));
+            line.addView(cell, lp);
         }
-        LinearLayout.LayoutParams carL = new LinearLayout.LayoutParams(contentW - px(28), -2);
-        carL.setMargins(-px(0), px(4), 0, 0);
-        page.addView(car, carL);
-        final int start = nowIndex;
-        car.post(() -> car.snapTo(start, false));
+        if (line != null && line.getChildCount() == 1) {
+            LinearLayout.LayoutParams fl = new LinearLayout.LayoutParams(0, 1, 1f);
+            fl.setMargins(px(5), 0, px(5), 0);
+            line.addView(new View(this), fl);
+        }
         classicCard(classic);
+    }
+
+    /** One theme big: its home screen, its screensaver, what it is, and the button to use it. */
+    private void buildThemeDetail(String id, String now) {
+        int i = Arrays.asList(Themes.IDS).indexOf(id);
+        boolean inUse = id.equals(now);
+        String themeName = THEME_NAMES[i];
+        LinearLayout top = row();
+        top.setGravity(Gravity.CENTER_VERTICAL);
+        ImageView back = new ImageView(this);
+        back.setImageResource(R.drawable.f_back);
+        back.setPadding(px(10), px(10), px(10), px(10));
+        back.setBackground(Fx.pill(0x1FFFFFFF, px(22), LINE, 1));
+        back.setOnClickListener(v -> {
+            themeOpen = null;
+            showTab(1);
+        });
+        Fx.press(back);
+        top.addView(back, new LinearLayout.LayoutParams(px(44), px(44)));
+        LinearLayout names = new LinearLayout(this);
+        names.setOrientation(LinearLayout.VERTICAL);
+        names.setPadding(px(12), 0, 0, 0);
+        TextView t = text(themeName, 26, TEXT, true);
+        t.setTypeface(Fx.font(800));
+        names.addView(t);
+        TextView tg = text((i + 1) + " of " + Themes.IDS.length + "  ·  " + THEME_TAG[i], 12.5f, DIM, false);
+        names.addView(tg);
+        top.addView(names, new LinearLayout.LayoutParams(0, -2, 1f));
+        if (inUse) {
+            TextView badge = text("IN USE", 11, TEXT, true);
+            badge.setLetterSpacing(0.1f);
+            badge.setPadding(px(10), px(4), px(10), px(4));
+            badge.setBackground(Fx.brand(px(12)));
+            top.addView(badge);
+        }
+        page.addView(top);
+
+        GlassCard big = new GlassCard(this, px(26), CARD);
+        big.setPadding(px(10), px(10), px(10), px(12));
+        HomePreview p = new HomePreview(this, logos);
+        JSONObject m = themeLook(id);
+        p.set(m, previewWall(m), dockEntries(m));
+        int[] focus = {0};
+        p.setOnClickListener(v -> {
+            focus[0] = (focus[0] + 1) % Math.max(1, dockEntries(m).size());
+            p.setFocus(focus[0], false);
+        });
+        big.addView(p);
+        TextView hint = text("Tap the picture to move the selection", 11.5f, DIM, false);
+        hint.setGravity(Gravity.CENTER);
+        hint.setPadding(0, px(8), 0, 0);
+        big.addView(hint);
+        LinearLayout.LayoutParams bl = new LinearLayout.LayoutParams(-1, -2);
+        bl.topMargin = px(12);
+        big.setLayoutParams(bl);
+        page.addView(big);
+
+        LinearLayout about = card(null);
+        TextView d = text(THEME_TEXT[i], 15, TEXT, false);
+        d.setLineSpacing(px(3), 1f);
+        about.addView(d);
+        List<JSONObject> ws = Board.list(m);
+        if (!ws.isEmpty()) {
+            StringBuilder names2 = new StringBuilder();
+            for (JSONObject w : ws) names2.append(names2.length() > 0 ? ", " : "").append(Board.name(w.optString("type")));
+            about.addView(label("Widgets"));
+            about.addView(note(names2 + (raw.has("widgets") ? " (yours)" : " (this theme's; change them in Design > Widgets)")));
+        }
+        about.addView(label("Its screensaver"));
+        FacePreview f = new FacePreview(this);
+        f.set(m.optString("face", "glass"), m, previewWall(m), slides(m));
+        about.addView(f);
+        TextView fn = text(Faces.NAMES[Math.max(0, Arrays.asList(Faces.IDS).indexOf(m.optString("face", "glass")))], 13, DIM, false);
+        fn.setPadding(0, px(6), 0, 0);
+        about.addView(fn);
+        page.addView(about);
+
+        LinearLayout r = row();
+        r.addView(button(inUse ? "Reset its look" : "Use " + themeName, !inUse, v -> applyTheme(id, themeName)));
+        r.addView(button("Customise", false, v -> {
+            if (!inUse) applyTheme(id, themeName);
+            designSeg = "layout";
+            showTab(2);
+        }));
+        page.addView(r);
+        LinearLayout nav = row();
+        nav.setGravity(Gravity.CENTER);
+        TextView prev = small("‹  " + THEME_NAMES[(i + Themes.IDS.length - 1) % Themes.IDS.length], v -> {
+            themeOpen = Themes.IDS[(i + Themes.IDS.length - 1) % Themes.IDS.length];
+            showTab(1);
+        });
+        TextView next = small(THEME_NAMES[(i + 1) % Themes.IDS.length] + "  ›", v -> {
+            themeOpen = Themes.IDS[(i + 1) % Themes.IDS.length];
+            showTab(1);
+        });
+        nav.addView(prev);
+        nav.addView(next);
+        page.addView(nav);
+    }
+
+    private void applyTheme(String id, String themeName) {
+        for (String k : STYLE_KEYS) raw.remove(k);
+        raw.remove("faces");
+        try {
+            raw.put("theme", id);
+        } catch (JSONException ignored) { }
+        changed();
+        status(themeName + " theme set. Your apps and wallpapers stay.", GOOD);
+        if (connected && !homeNow.startsWith(Tv.GLASS)) {
+            work("Switching the TV to Glass Home...", () -> {
+                String done = tv.useGlass();
+                homeNow = Tv.GLASS_HOME;
+                return themeName + " theme on. " + done;
+            }, this::refreshTab);
+        } else {
+            refreshTab();
+        }
     }
 
     /** A sideways carousel that settles on one card and makes the others smaller and dimmer. */
@@ -1355,11 +1483,11 @@ public class MainActivity extends Activity {
         GlassCard seg = new GlassCard(this, px(24), 0x1AFFFFFF);
         seg.setOrientation(LinearLayout.HORIZONTAL);
         seg.setPadding(px(4), px(4), px(4), px(4));
-        String[] names = {"Layout", "Icons", "Glow", "Clock", "Dock"};
-        String[] ids = {"layout", "icons", "glow", "clock", "dock"};
+        String[] names = {"Layout", "Icons", "Glow", "Clock", "Widgets", "Dock"};
+        String[] ids = {"layout", "icons", "glow", "clock", "widgets", "dock"};
         for (int i = 0; i < ids.length; i++) {
             final String id = ids[i];
-            TextView t = text(names[i], 13.5f, TEXT, true);
+            TextView t = text(names[i], 12.5f, TEXT, true);
             t.setGravity(Gravity.CENTER);
             t.setPadding(0, px(9), 0, px(9));
             t.setBackground(id.equals(designSeg) ? Fx.brand(px(20)) : null);
@@ -1375,6 +1503,7 @@ public class MainActivity extends Activity {
         sl.topMargin = px(6);
         page.addView(seg, sl);
         if ("dock".equals(designSeg)) buildDock(false);
+        else if ("widgets".equals(designSeg)) buildWidgets();
         else buildHome(designSeg);
     }
 
@@ -1386,14 +1515,47 @@ public class MainActivity extends Activity {
 
         LinearLayout lay = card("Layout");
         lay.addView(label("Apps shown as"));
-        lay.addView(choices("dock_style", new String[]{"Row of banners (Clean)", "Icons", "Glass panel with banners"},
-                new Object[]{"row", "icons", "panel"}, true));
+        lay.addView(choices("dock_style", new String[]{"Row (Clean)", "Icons", "Glass panel", "Names only"},
+                new Object[]{"row", "icons", "panel", "list"}, true));
         lay.addView(label("Side"));
         lay.addView(choices("dock_side", new String[]{"Left", "Right"}, new Object[]{"left", "right"}, false));
         lay.addView(label("Space from the screen edges"));
         lay.addView(slider("edge", 1, 12, "%", null));
         lay.addView(reset("dock_style", "dock_side", "edge"));
         page.addView(lay); lay.setTag("layout");
+
+        LinearLayout sty = card("Style");
+        sty.addView(label("Background"));
+        sty.addView(choices("bg", new String[]{"Wallpaper", "Solid colour", "Gradient"}, new Object[]{"wallpaper", "solid", "gradient"}, true));
+        String bgNow = m.optString("bg", "wallpaper");
+        if (!"wallpaper".equals(bgNow)) {
+            sty.addView(label("gradient".equals(bgNow) ? "First colour" : "Colour"));
+            sty.addView(colors("bg_color", new String[]{}, new String[]{}, null, BG_SWATCHES));
+            if ("gradient".equals(bgNow)) {
+                sty.addView(label("Second colour"));
+                sty.addView(colors("bg_color2", new String[]{}, new String[]{}, null, BG_SWATCHES));
+            }
+        }
+        sty.addView(label("Text colour"));
+        sty.addView(choices("ink", new String[]{"Light", "Dark (light backgrounds)"}, new Object[]{"light", "dark"}, false));
+        sty.addView(label("Tiles (row and panel)"));
+        sty.addView(choices("tile_style", new String[]{"Glass", "Plush", "Soft", "Material"},
+                new Object[]{"glass", "plush", "soft", "tonal"}, false));
+        sty.addView(label("Shade along the bottom"));
+        sty.addView(slider("bottom_shade", 0, 100, "%", null));
+        sty.addView(reset("bg", "bg_color", "bg_color2", "ink", "tile_style", "bottom_shade"));
+        page.addView(sty); sty.setTag("layout");
+
+        if ("daynight".equals(m.optString("theme"))) {
+            LinearLayout dn = card("Day & Night");
+            dn.addView(note("Now showing the " + m.optString("period", "day") + " look. It changes by itself at these hours."));
+            dn.addView(label("Day starts at (hour)"));
+            dn.addView(slider("day_from", 0, 23, ":00", null));
+            dn.addView(label("Night starts at (hour)"));
+            dn.addView(slider("night_from", 0, 23, ":00", null));
+            dn.addView(reset("day_from", "night_from"));
+            page.addView(dn); dn.setTag("layout");
+        }
 
         LinearLayout look = card("App look (icon pack)");
         look.addView(note("Works in every theme: the row, the glass panel and the floating icons. Every pack is made "
@@ -1416,8 +1578,8 @@ public class MainActivity extends Activity {
             rw.addView(toggle("White ring on the selected app", "focus_ring"));
             rw.addView(toggle("Big name of the selected app", "row_title"));
             rw.addView(label("Name font"));
-            rw.addView(choices("title_font", new String[]{"Thin", "Light", "Regular", "Medium", "Bold"},
-                    new Object[]{"thin", "light", "regular", "medium", "bold"}, false));
+            rw.addView(choices("title_font", new String[]{"Thin", "Light", "Regular", "Medium", "Bold", "Dot matrix"},
+                    new Object[]{"thin", "light", "regular", "medium", "bold", "dot"}, false));
             rw.addView(toggle("Greeting (Good evening)", "greeting"));
             rw.addView(reset("row_visible", "row_top", "focus_scale", "row_band", "focus_ring", "row_title", "title_font", "greeting"));
             page.addView(rw); rw.setTag("layout");
@@ -1475,6 +1637,8 @@ public class MainActivity extends Activity {
         bar.addView(label("Look"));
         bar.addView(choices("bar_style", new String[]{"Floating", "Glass pill"}, new Object[]{"bare", "pill"}, false));
         bar.addView(toggle("Clock", "bar_clock"));
+        bar.addView(label("Clock style"));
+        bar.addView(choices("clock_style", new String[]{"Text", "Dot matrix"}, new Object[]{"text", "dot"}, false));
         bar.addView(choices("clock", new String[]{"24-hour", "12-hour"}, new Object[]{"24", "12"}, false));
         bar.addView(label("Clock font"));
         bar.addView(choices("clock_font", new String[]{"Thin", "Light", "Regular", "Medium", "Bold", "Condensed"},
@@ -1489,7 +1653,7 @@ public class MainActivity extends Activity {
         bar.addView(buttonsEditor());
         bar.addView(label("Music button opens"));
         bar.addView(appPicker("music_app", "Any music app"));
-        bar.addView(reset("bar_style", "bar_clock", "clock", "clock_font", "clock_scale", "clock_color", "seconds", "bar_weather", "buttons"));
+        bar.addView(reset("bar_style", "bar_clock", "clock_style", "clock", "clock_font", "clock_scale", "clock_color", "seconds", "bar_weather", "buttons"));
         page.addView(bar); bar.setTag("clock");
 
         LinearLayout ex = card("Extras");
@@ -1499,6 +1663,216 @@ public class MainActivity extends Activity {
             Object tag = page.getChildAt(k).getTag();
             if (tag instanceof String && !section.equals(tag)) page.removeViewAt(k);
         }
+    }
+
+    // ------------------------------------------------------------------ widgets on the TV
+
+    private List<JSONObject> widgetList() {
+        List<JSONObject> out = new ArrayList<>();
+        for (JSONObject w : Board.list(merged())) {
+            try {
+                out.add(new JSONObject(w.toString()));
+            } catch (JSONException ignored) { }
+        }
+        return out;
+    }
+
+    private void saveWidgets(List<JSONObject> ws, boolean rebuild) {
+        JSONArray a = new JSONArray();
+        for (JSONObject w : ws) a.put(w);
+        put("widgets", a);
+        if (rebuild) refreshTab();
+    }
+
+    private void buildWidgets() {
+        JSONObject m = merged();
+        List<JSONObject> ws = widgetList();
+        LinearLayout on = card("On the TV" + (ws.isEmpty() ? "" : "  ·  " + ws.size()));
+        if (ws.isEmpty()) {
+            on.addView(note("No widgets yet. Add one below: they sit around your apps on the TV's home screen and "
+                    + "keep themselves up to date."));
+        } else if (!raw.has("widgets")) {
+            on.addView(note("These come with the " + Themes.name(m.optString("theme")) + " theme. Change anything and "
+                    + "they become yours."));
+        }
+        for (int i = 0; i < ws.size(); i++) {
+            final int index = i;
+            JSONObject w = ws.get(i);
+            String type = w.optString("type");
+            GlassCard item = new GlassCard(this, px(20), 0x14FFFFFF);
+            item.setPadding(px(12), px(10), px(12), px(10));
+            LinearLayout head = row();
+            head.setGravity(Gravity.CENTER_VERTICAL);
+            WidgetSample sample = new WidgetSample(this, m, w, previewWall(m));
+            head.addView(sample, new LinearLayout.LayoutParams(px(92), px(56)));
+            LinearLayout col = new LinearLayout(this);
+            col.setOrientation(LinearLayout.VERTICAL);
+            col.setPadding(px(12), 0, 0, 0);
+            TextView n = text(Board.name(type), 16, TEXT, true);
+            col.addView(n);
+            String pos = w.optString("pos", Board.defaultPos(type));
+            TextView where = text(Board.POS_NAMES[Math.max(0, Arrays.asList(Board.POS).indexOf(pos))], 12.5f, DIM, false);
+            col.addView(where);
+            head.addView(col, new LinearLayout.LayoutParams(0, -2, 1f));
+            item.addView(head);
+            LinearLayout pr = row();
+            for (int k = 0; k < Board.POS.length; k++) {
+                final String pv = Board.POS[k];
+                TextView c = chip(Board.POS_NAMES[k], pv.equals(pos));
+                c.setOnClickListener(v -> {
+                    try {
+                        ws.get(index).put("pos", pv);
+                    } catch (JSONException ignored) { }
+                    saveWidgets(ws, true);
+                });
+                pr.addView(c);
+            }
+            item.addView(scrollRow(pr));
+            switch (type) {
+                case "clock":
+                    item.addView(switchRow("Seconds", w.optBoolean("seconds", false), x -> {
+                        try {
+                            ws.get(index).put("seconds", x);
+                        } catch (JSONException ignored) { }
+                        saveWidgets(ws, false);
+                    }));
+                    break;
+                case "world": {
+                    LinearLayout cr = row();
+                    String tz = w.optString("tz", "Europe/London");
+                    for (String[] city : Board.CITIES) {
+                        TextView c = chip(city[0], city[1].equals(tz));
+                        c.setOnClickListener(v -> {
+                            try {
+                                ws.get(index).put("tz", city[1]).remove("city");
+                            } catch (JSONException ignored) { }
+                            saveWidgets(ws, true);
+                        });
+                        cr.addView(c);
+                    }
+                    item.addView(scrollRow(cr));
+                    break;
+                }
+                case "countdown": {
+                    EditText title = edit(w.optString("title", "New Year"), "What are you counting down to?");
+                    EditText date = edit(w.optString("date", ""), "Date, e.g. 2026-12-25 (empty = 1 January)");
+                    item.addView(title);
+                    item.addView(date);
+                    LinearLayout sr = row();
+                    sr.setGravity(Gravity.END);
+                    sr.addView(small("Save", v -> {
+                        String ds = date.getText().toString().trim();
+                        if (!ds.isEmpty() && !ds.matches("\\d{4}-\\d{2}-\\d{2}")) {
+                            status("Write the date like 2026-12-25.", BAD);
+                            return;
+                        }
+                        try {
+                            ws.get(index).put("title", title.getText().toString().trim()).put("date", ds);
+                        } catch (JSONException ignored) { }
+                        saveWidgets(ws, true);
+                    }));
+                    item.addView(sr);
+                    break;
+                }
+                case "note":
+                case "greeting": {
+                    boolean note = "note".equals(type);
+                    EditText e = edit(w.optString(note ? "text" : "name", ""), note ? "Your note (up to 4 lines on the TV)" : "Your name (optional)");
+                    if (note) {
+                        e.setSingleLine(false);
+                        e.setMaxLines(4);
+                    }
+                    item.addView(e);
+                    LinearLayout sr = row();
+                    sr.setGravity(Gravity.END);
+                    sr.addView(small("Save", v -> {
+                        try {
+                            ws.get(index).put(note ? "text" : "name", e.getText().toString().trim());
+                        } catch (JSONException ignored) { }
+                        saveWidgets(ws, true);
+                    }));
+                    item.addView(sr);
+                    break;
+                }
+                default:
+                    break;
+            }
+            LinearLayout act = row();
+            act.setGravity(Gravity.END);
+            if (i > 0) act.addView(small("↑", v -> {
+                ws.add(index - 1, ws.remove(index));
+                saveWidgets(ws, true);
+            }));
+            if (i < ws.size() - 1) act.addView(small("↓", v -> {
+                ws.add(index + 1, ws.remove(index));
+                saveWidgets(ws, true);
+            }));
+            act.addView(small("Remove", v -> {
+                ws.remove(index);
+                saveWidgets(ws, true);
+            }));
+            item.addView(act);
+            LinearLayout.LayoutParams il = new LinearLayout.LayoutParams(-1, -2);
+            il.setMargins(0, px(8), 0, 0);
+            on.addView(item, il);
+        }
+        if (raw.has("widgets")) {
+            LinearLayout rr = row();
+            rr.setGravity(Gravity.END);
+            rr.addView(small("↺  The theme's own widgets", v -> {
+                remove("widgets");
+                refreshTab();
+            }));
+            on.addView(rr);
+        }
+        page.addView(on);
+
+        LinearLayout add = card("Add a widget");
+        add.addView(note("Tap one to put it on the TV. You can move it to any corner after."));
+        LinearLayout line = null;
+        for (int k = 0; k < Board.TYPES.length; k++) {
+            if (k % 2 == 0) {
+                line = row();
+                add.addView(line);
+            }
+            String type = Board.TYPES[k];
+            JSONObject w = new JSONObject();
+            try {
+                w.put("type", type).put("pos", Board.defaultPos(type));
+                if ("note".equals(type)) w.put("text", "Movie night on Friday");
+                if ("world".equals(type)) w.put("tz", "Europe/London");
+                if ("countdown".equals(type)) w.put("title", "New Year");
+            } catch (JSONException ignored) { }
+            GlassCard cell = new GlassCard(this, px(18), 0x14FFFFFF);
+            cell.setPadding(px(6), px(6), px(6), px(8));
+            cell.addView(new WidgetSample(this, m, w, previewWall(m)), new LinearLayout.LayoutParams(-1, px(84)));
+            TextView n = text(Board.NAMES[k], 13.5f, TEXT, true);
+            n.setPadding(px(4), px(6), px(4), 0);
+            cell.addView(n);
+            TextView ab = text(Board.ABOUT[k], 11.5f, DIM, false);
+            ab.setPadding(px(4), px(1), px(4), 0);
+            cell.addView(ab);
+            cell.setOnClickListener(v -> {
+                List<JSONObject> now = widgetList();
+                now.add(w);
+                saveWidgets(now, true);
+                status(Board.NAMES[Arrays.asList(Board.TYPES).indexOf(type)] + " added to the TV.", GOOD);
+            });
+            Fx.press(cell);
+            LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(0, -2, 1f);
+            lp.setMargins(px(4), px(4), px(4), px(4));
+            line.addView(cell, lp);
+        }
+        if (line != null && line.getChildCount() == 1) line.addView(new View(this), new LinearLayout.LayoutParams(0, 1, 1f));
+        page.addView(add);
+
+        LinearLayout look = card("Widget look");
+        look.addView(label("Style"));
+        look.addView(choices("widget_style", Board.STYLE_NAMES, Board.STYLES, false));
+        look.addView(label("Size"));
+        look.addView(slider("widget_size", 60, 160, "%", null));
+        look.addView(reset("widget_style", "widget_size"));
+        page.addView(look);
     }
 
     /** Every icon pack shown with three of your apps; tap one to use it. */
@@ -1951,6 +2325,10 @@ public class MainActivity extends Activity {
     @Override
     protected void onActivityResult(int request, int result, Intent data) {
         super.onActivityResult(request, result, data);
+        if (request == PICK_APK && result == RESULT_OK && data != null && data.getData() != null) {
+            prepareApk(data.getData());
+            return;
+        }
         if (request != PICK || result != RESULT_OK || data == null) return;
         List<Uri> uris = new ArrayList<>();
         ClipData clip = data.getClipData();
@@ -2247,6 +2625,9 @@ public class MainActivity extends Activity {
             page.addView(note("Connect to the TV first (More > TV and connection)."));
             return;
         }
+        LinearLayout inst = row();
+        inst.addView(button("Install an app from this phone", true, v -> { sub = "install"; showTab(5); }));
+        page.addView(inst);
         LinearLayout c = card("Apps on the TV");
         c.addView(note("Turn apps off to save RAM (they can be turned back on here). Needed parts of the TV are protected."));
         EditText search = edit(appSearch, "Search");
@@ -2506,6 +2887,319 @@ public class MainActivity extends Activity {
         });
     }
 
+    // ------------------------------------------------------------------ installing apps from the phone
+
+    /** An APK handed to FreeTV with Share or Open with, or null. */
+    private static Uri sharedApk(Intent i) {
+        if (i == null) return null;
+        if (Intent.ACTION_SEND.equals(i.getAction())) {
+            Object u = i.getParcelableExtra(Intent.EXTRA_STREAM);
+            return u instanceof Uri ? (Uri) u : null;
+        }
+        if (Intent.ACTION_VIEW.equals(i.getAction())) return i.getData();
+        return null;
+    }
+
+    @Override
+    protected void onNewIntent(Intent intent) {
+        super.onNewIntent(intent);
+        Uri u = sharedApk(intent);
+        if (u != null) {
+            prepareApk(u);
+            sub = "install";
+            showTab(5);
+        }
+    }
+
+    private void pickApk() {
+        Intent i = new Intent(Intent.ACTION_OPEN_DOCUMENT);
+        i.addCategory(Intent.CATEGORY_OPENABLE);
+        i.setType("*/*");
+        i.putExtra(Intent.EXTRA_MIME_TYPES, new String[]{"application/vnd.android.package-archive",
+                "application/octet-stream", "application/zip", "application/x-zip-compressed"});
+        try {
+            startActivityForResult(i, PICK_APK);
+        } catch (RuntimeException e) {
+            toast("No file picker on this phone.");
+        }
+    }
+
+    private static String fileName(android.content.ContentResolver cr, Uri u) {
+        String name = null;
+        try (android.database.Cursor c = cr.query(u, new String[]{android.provider.OpenableColumns.DISPLAY_NAME}, null, null, null)) {
+            if (c != null && c.moveToFirst()) name = c.getString(0);
+        } catch (RuntimeException ignored) { }
+        if (name == null) name = u.getLastPathSegment();
+        return name == null ? "app.apk" : name;
+    }
+
+    /** Copies the chosen file into the app, reads its name, icon and version, then installs when connected. */
+    private void prepareApk(Uri uri) {
+        if (installing) {
+            status("Wait for the app being installed now to finish.", BAD);
+            return;
+        }
+        apkFile = null;
+        installOk = null;
+        installK = -1f;
+        apkIcon = null;
+        apkLabel = apkPkg = apkVersion = "";
+        apkName = fileName(getContentResolver(), uri);
+        installMsg = "Reading " + apkName + "...";
+        new Thread(() -> {
+            File dir = new File(getCacheDir(), "apk");
+            //noinspection ResultOfMethodCallIgnored
+            dir.mkdirs();
+            File[] old = dir.listFiles();
+            if (old != null) for (File o : old) //noinspection ResultOfMethodCallIgnored
+                o.delete();
+            File f = new File(dir, "send.bin");
+            String problem = null;
+            try (java.io.InputStream in = getContentResolver().openInputStream(uri); OutputStream o = new FileOutputStream(f)) {
+                if (in == null) throw new IOException("can't open it");
+                byte[] b = new byte[256 * 1024];
+                int n;
+                while ((n = in.read(b)) > 0) o.write(b, 0, n);
+            } catch (Exception e) {
+                problem = "Could not read the file: " + e.getMessage();
+            }
+            List<java.util.zip.ZipEntry> parts = problem == null ? Tv.splits(f) : null;
+            File info = f;
+            if (problem == null && parts != null) {
+                // a bundle: read the name and icon from its base part
+                java.util.zip.ZipEntry best = parts.get(0);
+                for (java.util.zip.ZipEntry e : parts) {
+                    String n = e.getName().toLowerCase(Locale.ROOT);
+                    if (n.endsWith("base.apk") || (!best.getName().toLowerCase(Locale.ROOT).endsWith("base.apk") && e.getSize() > best.getSize())) best = e;
+                }
+                info = new File(dir, "base.apk");
+                try (java.util.zip.ZipFile z = new java.util.zip.ZipFile(f); java.io.InputStream in = z.getInputStream(best);
+                     OutputStream o = new FileOutputStream(info)) {
+                    byte[] b = new byte[256 * 1024];
+                    int n;
+                    while ((n = in.read(b)) > 0) o.write(b, 0, n);
+                } catch (Exception ignored) { }
+            }
+            android.content.pm.PackageInfo pi = problem == null ? getPackageManager().getPackageArchiveInfo(info.getPath(), 0) : null;
+            if (problem == null && pi == null) problem = apkName + " isn't an app (APK) FreeTV can read.";
+            final String why = problem;
+            final boolean bundle = parts != null;
+            final int partCount = parts == null ? 1 : parts.size();
+            String label = "", pkg = "", ver = "";
+            android.graphics.drawable.Drawable icon = null;
+            if (pi != null) {
+                pi.applicationInfo.sourceDir = info.getPath();
+                pi.applicationInfo.publicSourceDir = info.getPath();
+                label = String.valueOf(getPackageManager().getApplicationLabel(pi.applicationInfo));
+                pkg = pi.packageName;
+                ver = pi.versionName == null ? "" : pi.versionName;
+                try {
+                    icon = pi.applicationInfo.loadIcon(getPackageManager());
+                } catch (RuntimeException ignored) { }
+            }
+            final String l = label, p = pkg, v = ver;
+            final android.graphics.drawable.Drawable ic = icon;
+            main.post(() -> {
+                if (why != null) {
+                    installOk = false;
+                    installMsg = why;
+                } else {
+                    apkFile = f;
+                    apkBundle = bundle;
+                    apkLabel = l;
+                    apkPkg = p;
+                    apkVersion = v;
+                    apkIcon = ic;
+                    installMsg = connected ? "" : "Connect to the TV to send it (it starts by itself once connected).";
+                    if (bundle) apkVersion = v + "  ·  " + partCount + " parts";
+                }
+                if (currentTab == 5 && "install".equals(sub)) refreshTab();
+                if (why == null && connected) startInstall();
+            });
+        }, "apk-read").start();
+    }
+
+    private void startInstall() {
+        if (apkFile == null || installing) return;
+        if (!connected) {
+            status("Connect to the TV first (More > TV and connection).", BAD);
+            return;
+        }
+        installing = true;
+        installOk = null;
+        installK = 0f;
+        installMsg = "Sending to the TV...";
+        if (currentTab == 5 && "install".equals(sub)) refreshTab();
+        final File f = apkFile;
+        final long size = f.length();
+        worker.execute(() -> {
+            String result;
+            try {
+                long[] last = {0};
+                result = tv.installApk(f, (done, total) -> {
+                    long now = System.currentTimeMillis();
+                    if (now - last[0] < 120 && done < total) return;
+                    last[0] = now;
+                    float k = total > 0 ? Math.min(1f, done / (float) total) : 0f;
+                    main.post(() -> showInstall(k, "Sending to the TV...  " + gb(done / 1048576) + " of " + gb(Math.max(1, total / 1048576))));
+                });
+            } catch (Exception e) {
+                result = "Copy failed: " + (e.getMessage() == null ? e.toString() : e.getMessage());
+                if (link != null && !link.isConnected()) connected = false;
+            }
+            String problem = Tv.installProblem(result);
+            main.post(() -> {
+                installing = false;
+                installOk = problem == null;
+                installMsg = problem == null ? (apkLabel.isEmpty() ? "Installed" : apkLabel) + " is on the TV." : problem;
+                if (problem == null) {
+                    remember(apkLabel, apkPkg);
+                    status(installMsg, GOOD);
+                    syncFromTv(false);
+                } else {
+                    status(problem, BAD);
+                }
+                if (currentTab == 5 && "install".equals(sub)) refreshTab();
+            });
+            if (size > 0 && problem == null) {
+                //noinspection ResultOfMethodCallIgnored
+                f.delete();
+            }
+        });
+    }
+
+    private void showInstall(float k, String text) {
+        installK = k;
+        installMsg = text;
+        if (installFill != null) installFill.setScaleX(Math.max(0.02f, k));
+        if (installText != null) installText.setText(text);
+    }
+
+    private void remember(String label, String pkg) {
+        try {
+            JSONArray h = new JSONArray(prefs.getString("installed", "[]"));
+            JSONArray out = new JSONArray();
+            out.put(new JSONObject().put("label", label).put("pkg", pkg).put("at", System.currentTimeMillis()));
+            for (int i = 0; i < h.length() && out.length() < 8; i++) {
+                JSONObject o = h.optJSONObject(i);
+                if (o != null && !pkg.equals(o.optString("pkg"))) out.put(o);
+            }
+            prefs.edit().putString("installed", out.toString()).apply();
+        } catch (JSONException ignored) { }
+    }
+
+    private void buildInstall() {
+        installFill = null;
+        installText = null;
+        LinearLayout top = card(null);
+        LinearLayout tr = row();
+        tr.setGravity(Gravity.CENTER_VERTICAL);
+        FrameLayout ib = new FrameLayout(this);
+        ib.setBackground(Fx.brand(px(18)));
+        ImageView ii = new ImageView(this);
+        ii.setImageResource(R.drawable.f_send);
+        ii.setImageTintList(android.content.res.ColorStateList.valueOf(Color.WHITE));
+        FrameLayout.LayoutParams il = new FrameLayout.LayoutParams(px(26), px(26));
+        il.gravity = Gravity.CENTER;
+        ib.addView(ii, il);
+        tr.addView(ib, new LinearLayout.LayoutParams(px(52), px(52)));
+        LinearLayout tc = new LinearLayout(this);
+        tc.setOrientation(LinearLayout.VERTICAL);
+        tc.setPadding(px(14), 0, 0, 0);
+        TextView tt = text("Send an app to your TV", 19, TEXT, true);
+        tt.setTypeface(Fx.font(700));
+        tc.addView(tt);
+        tc.addView(text("Over your Wi-Fi. No USB stick, no Downloader app.", 13, DIM, false));
+        tr.addView(tc, new LinearLayout.LayoutParams(0, -2, 1f));
+        top.addView(tr);
+        LinearLayout br = row();
+        br.addView(button(apkFile == null ? "Choose an APK on this phone" : "Choose another", true, v -> pickApk()));
+        top.addView(br);
+        top.addView(note("Works with .apk files and split-app bundles (.apks, .xapk). Tip: in your browser's downloads "
+                + "or the Files app, tap Share on an APK and pick FreeTV."));
+        page.addView(top);
+
+        if (apkFile != null || !installMsg.isEmpty() || installOk != null) {
+            LinearLayout c = card(null);
+            LinearLayout ar = row();
+            ar.setGravity(Gravity.CENTER_VERTICAL);
+            ImageView icon = new ImageView(this);
+            if (apkIcon != null) icon.setImageDrawable(apkIcon);
+            else icon.setImageResource(R.drawable.f_apps);
+            ar.addView(icon, new LinearLayout.LayoutParams(px(56), px(56)));
+            LinearLayout col = new LinearLayout(this);
+            col.setOrientation(LinearLayout.VERTICAL);
+            col.setPadding(px(14), 0, 0, 0);
+            TextView n = text(apkLabel.isEmpty() ? apkName : apkLabel, 17, TEXT, true);
+            n.setTypeface(Fx.font(700));
+            col.addView(n);
+            String meta = (apkPkg.isEmpty() ? "" : apkPkg) + (apkVersion.isEmpty() ? "" : "  ·  v" + apkVersion)
+                    + (apkFile != null ? "  ·  " + gb(Math.max(1, apkFile.length() / 1048576)) : "");
+            if (!meta.trim().isEmpty()) col.addView(text(meta.trim(), 12, DIM, false));
+            ar.addView(col, new LinearLayout.LayoutParams(0, -2, 1f));
+            c.addView(ar);
+            if (installing || installK >= 0f) {
+                FrameLayout track = new FrameLayout(this);
+                track.setBackground(Fx.pill(0x26FFFFFF, px(5), 0, 0));
+                View fillBar = new View(this);
+                fillBar.setBackground(Fx.brand(px(5)));
+                fillBar.setPivotX(0f);
+                fillBar.setScaleX(Math.max(0.02f, installOk != null ? 1f : installK));
+                track.addView(fillBar, new FrameLayout.LayoutParams(-1, -1));
+                LinearLayout.LayoutParams tl = new LinearLayout.LayoutParams(-1, px(10));
+                tl.setMargins(0, px(16), 0, px(4));
+                c.addView(track, tl);
+                installFill = fillBar;
+            }
+            installText = text(installMsg, 14, installOk == null ? TEXT : installOk ? GOOD : BAD, installOk != null);
+            installText.setPadding(0, px(8), 0, px(4));
+            if (!installMsg.isEmpty()) c.addView(installText);
+            LinearLayout act = row();
+            if (Boolean.TRUE.equals(installOk) && !apkPkg.isEmpty()) {
+                String pkg = apkPkg;
+                act.addView(button("Open on the TV", true, v -> work("Opening...", () -> tv.launch(pkg), null)));
+                List<String> dock = list(merged(), "dock", DEFAULT_DOCK);
+                if (!dock.contains(pkg)) {
+                    act.addView(button("Add to the TV home", false, v -> {
+                        List<String> d = list(merged(), "dock", DEFAULT_DOCK);
+                        d.add(pkg);
+                        putList("dock", d);
+                        status((apkLabel.isEmpty() ? "It" : apkLabel) + " is on the TV's home screen.", GOOD);
+                        refreshTab();
+                    }));
+                }
+            } else if (Boolean.FALSE.equals(installOk) && apkFile != null) {
+                act.addView(button("Try again", true, v -> startInstall()));
+            } else if (apkFile != null && !installing && !connected) {
+                act.addView(button("Connect a TV", true, v -> { sub = "system"; showTab(5); }));
+            }
+            if (act.getChildCount() > 0) c.addView(act);
+            page.addView(c);
+        }
+
+        try {
+            JSONArray h = new JSONArray(prefs.getString("installed", "[]"));
+            if (h.length() > 0) {
+                LinearLayout hc = card("Sent before");
+                for (int i = 0; i < h.length(); i++) {
+                    JSONObject o = h.optJSONObject(i);
+                    if (o == null) continue;
+                    String pkg = o.optString("pkg");
+                    LinearLayout r = row();
+                    r.setGravity(Gravity.CENTER_VERTICAL);
+                    LinearLayout cc = new LinearLayout(this);
+                    cc.setOrientation(LinearLayout.VERTICAL);
+                    cc.addView(text(o.optString("label", pkg), 15, TEXT, true));
+                    cc.addView(text(pkg, 11.5f, DIM, false));
+                    r.addView(cc, new LinearLayout.LayoutParams(0, -2, 1f));
+                    r.addView(small("Open", v -> work("Opening...", () -> tv.launch(pkg), null)));
+                    hc.addView(r);
+                }
+                page.addView(hc);
+            }
+        } catch (JSONException ignored) { }
+    }
+
     // ------------------------------------------------------------------ More
 
     private void buildMore() {
@@ -2514,6 +3208,8 @@ public class MainActivity extends Activity {
                 : "Connect, switch home screens, memory", () -> { sub = "system"; showTab(5); }));
         page.addView(menuRow(R.drawable.f_wand, "Set up a TV", "Install FreeTV's home screen on any Android TV",
                 () -> { sub = "setup"; setupStep = 0; showTab(5); }));
+        page.addView(menuRow(R.drawable.f_send, "Install apps on the TV", "Send an APK from this phone to the TV",
+                () -> { sub = "install"; showTab(5); }));
         page.addView(menuRow(R.drawable.f_apps, "Apps on the TV", "Turn apps off, stop them, open or uninstall",
                 () -> { sub = "apps"; showTab(5); }));
         page.addView(menuRow(R.drawable.f_bookmark, "Presets and backup", "Save looks, back up and restore the TV",
@@ -2899,6 +3595,7 @@ public class MainActivity extends Activity {
             lp.setMargins(px(5), px(5), px(5), px(5));
             line.addView(c, lp);
         }
+        if (line != null && line.getChildCount() == 1) line.addView(new View(this), new LinearLayout.LayoutParams(0, 1, 1f));
         page.addView(grid);
     }
 
@@ -3157,6 +3854,10 @@ public class MainActivity extends Activity {
 
     /** Named choices (e.g. Wallpaper colour / White) followed by colour dots and a custom colour. */
     private View colors(String key, String[] names, String[] values, Runnable after) {
+        return colors(key, names, values, after, SWATCHES);
+    }
+
+    private View colors(String key, String[] names, String[] values, Runnable after, String[] palette) {
         LinearLayout r = row();
         r.setGravity(Gravity.CENTER_VERTICAL);
         String cur = merged().optString(key, values.length > 0 ? values[0] : "");
@@ -3169,7 +3870,7 @@ public class MainActivity extends Activity {
             });
             r.addView(c);
         }
-        for (String hex : SWATCHES) {
+        for (String hex : palette) {
             View dot = swatch(hex, hex.equalsIgnoreCase(cur));
             dot.setOnClickListener(v -> {
                 put(key, hex);

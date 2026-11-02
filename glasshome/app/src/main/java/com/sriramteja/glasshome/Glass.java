@@ -110,6 +110,11 @@ final class Glass {
             invalidate();
         }
 
+        void setTint(int c) {
+            tint.setColor(c);
+            invalidate();
+        }
+
         void setRadius(float r) {
             radius = r;
             invalidateOutline();

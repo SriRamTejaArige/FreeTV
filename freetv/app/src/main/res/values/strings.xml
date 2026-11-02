@@ -1,4 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name">FreeTV</string>
+    <string name="w_remote_name">TV remote</string>
+    <string name="w_remote_desc">Arrows, OK, Back, Home and volume for your TV</string>
+    <string name="w_quick_name">TV quick actions</string>
+    <string name="w_quick_desc">Next look, screensaver, Home and free RAM on your TV</string>
 </resources>

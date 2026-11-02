@@ -593,4 +593,81 @@ final class Tv {
         if (r.contains("No activities")) sh("monkey -p " + pkg + " -c android.intent.category.LAUNCHER 1");
         return "Opened " + Names.of(pkg) + " on the TV.";
     }
+
+    // ------------------------------------------------------------------ installing apps from the phone
+
+    /** The .apk files inside a split-app bundle (.apks / .xapk), or null when the file is one plain APK. */
+    static List<java.util.zip.ZipEntry> splits(java.io.File f) {
+        try (java.util.zip.ZipFile z = new java.util.zip.ZipFile(f)) {
+            if (z.getEntry("AndroidManifest.xml") != null) return null;
+            List<java.util.zip.ZipEntry> out = new ArrayList<>();
+            java.util.Enumeration<? extends java.util.zip.ZipEntry> e = z.entries();
+            while (e.hasMoreElements()) {
+                java.util.zip.ZipEntry x = e.nextElement();
+                if (!x.isDirectory() && x.getName().toLowerCase(java.util.Locale.ROOT).endsWith(".apk")) out.add(x);
+            }
+            return out.isEmpty() ? null : out;
+        } catch (IOException e) {
+            return null;
+        }
+    }
+
+    /**
+     * Copies an app to the TV and installs it (or updates it). A bundle of split APKs is installed as one
+     * app. Returns pm's answer ("Success" or the reason it refused).
+     */
+    String installApk(java.io.File apk, AdbLink.Sent progress) throws IOException {
+        List<java.util.zip.ZipEntry> parts = splits(apk);
+        if (parts == null) {
+            String tmp = "/data/local/tmp/freetv-app.apk";
+            try (java.io.InputStream in = new java.io.FileInputStream(apk)) {
+                link.push(in, apk.length(), tmp, progress);
+            }
+            return sh("pm install -r -g " + tmp + " 2>&1; rm -f " + tmp);
+        }
+        long total = 0;
+        for (java.util.zip.ZipEntry e : parts) total += Math.max(0, e.getSize());
+        String made = sh("pm install-create -r -g -S " + total + " 2>&1");
+        java.util.regex.Matcher m = java.util.regex.Pattern.compile("\\[(\\d+)\\]").matcher(made);
+        if (!m.find()) return made;
+        String session = m.group(1);
+        final long all = total;
+        long[] before = {0};
+        try (java.util.zip.ZipFile z = new java.util.zip.ZipFile(apk)) {
+            int i = 0;
+            for (java.util.zip.ZipEntry e : parts) {
+                String tmp = "/data/local/tmp/freetv-split" + i + ".apk";
+                long base = before[0];
+                try (java.io.InputStream in = z.getInputStream(e)) {
+                    link.push(in, e.getSize(), tmp, (d, t) -> {
+                        if (progress != null) progress.bytes(base + d, all);
+                    });
+                }
+                String w = sh("pm install-write -S " + e.getSize() + " " + session + " split" + i + ".apk " + tmp
+                        + " 2>&1; rm -f " + tmp);
+                if (!w.contains("Success")) {
+                    sh("pm install-abandon " + session);
+                    return w;
+                }
+                before[0] += e.getSize();
+                i++;
+            }
+        }
+        return sh("pm install-commit " + session + " 2>&1");
+    }
+
+    /** pm's refusal in plain words, or null when it worked. */
+    static String installProblem(String r) {
+        if (r != null && r.contains("Success")) return null;
+        String s = r == null ? "" : r;
+        if (s.contains("NO_MATCHING_ABIS")) return "This app is made for a different kind of processor than the TV's. Look for an ARM (armeabi-v7a) version.";
+        if (s.contains("OLDER_SDK")) return "This app needs a newer Android version than the TV has.";
+        if (s.contains("UPDATE_INCOMPATIBLE")) return "A copy of this app from someone else is on the TV. Uninstall it on the TV first, then try again.";
+        if (s.contains("VERSION_DOWNGRADE")) return "A newer version of this app is already on the TV.";
+        if (s.contains("INSUFFICIENT_STORAGE")) return "Not enough space on the TV. Free some in Apps on the TV, then try again.";
+        if (s.contains("INVALID_APK") || s.contains("PARSE_FAILED") || s.contains("NOT_APK")) return "This file isn't a working app (APK).";
+        if (s.contains("MISSING_SPLIT")) return "This app comes in parts and one is missing. Use the full .apks or .xapk file.";
+        if (s.contains("USER_RESTRICTED") || s.contains("VERIFICATION")) return "The TV blocked it. Check Settings > Security on the TV.";
+        return "The TV refused it: " + s.trim();
+    }
 }

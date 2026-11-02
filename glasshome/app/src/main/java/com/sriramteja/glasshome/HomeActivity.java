@@ -113,6 +113,14 @@ public class HomeActivity extends Activity {
     private final List<TextView> accentText = new ArrayList<>();
     private Noir.Seconds secondsView;
     private Noir.Watcher watcher;
+    /** New looks: dark text (light themes), a list of names instead of icons, tile styles, widgets. */
+    private boolean darkInk, list, usesWall = true;
+    private String tileStyle = "glass";
+    private BoardView board;
+    private final List<DotViews.Clock> dotClocks = new ArrayList<>();
+    private DotViews.Text dotTitle;
+    /** Things coloured from the accent that are redone when it changes (tiles: cleared with the dock). */
+    private final List<Runnable> recolor = new ArrayList<>(), tileRecolor = new ArrayList<>();
     private View spot;
     private static final Map<String, Bitmap[]> LOGOS = new HashMap<>();
 
@@ -122,6 +130,11 @@ public class HomeActivity extends Activity {
 
     static Typeface font(String f) {
         return Noir.font(f);
+    }
+
+    /** The text colour of the theme (white, or dark on light themes) with the given alpha. */
+    private int ink(int alpha) {
+        return ((alpha & 0xFF) << 24) | (darkInk ? 0x1F2430 : 0xFFFFFF);
     }
 
     /** A setting given in percent, as a fraction. */
@@ -149,8 +162,14 @@ public class HomeActivity extends Activity {
     private final Runnable weatherTick = new Runnable() {
         @Override
         public void run() {
+            if (overlay == null && !Store.config().toString().equals(cfg.toString())) {
+                // new settings, or Day & Night turned over: rebuild with them
+                recreate();
+                return;
+            }
             Weather.refresh(HomeActivity.this);
             showWeather();
+            if (board != null) board.refresh();
             main.postDelayed(this, 60_000L);
         }
     };
@@ -229,6 +248,23 @@ public class HomeActivity extends Activity {
         iconStyle = cfg.optString("icon_style", "original");
         right = "right".equals(cfg.optString("dock_side", "left"));
         glowOn = cfg.optBoolean("glow", false);
+        darkInk = "dark".equals(cfg.optString("ink", "light"));
+        list = "list".equals(cfg.optString("dock_style", "icons"));
+        tileStyle = cfg.optString("tile_style", "glass");
+        String bgMode = cfg.optString("bg", "wallpaper");
+        usesWall = "wallpaper".equals(bgMode);
+        if (!usesWall) {
+            // a plain colour or a soft gradient instead of the pictures
+            wallA.setVisibility(View.GONE);
+            wallB.setVisibility(View.GONE);
+            int c1 = parseColor(cfg.optString("bg_color", "#0B0D12"), 0xFF0B0D12);
+            if ("gradient".equals(bgMode)) {
+                root.setBackground(new GradientDrawable(GradientDrawable.Orientation.TL_BR,
+                        new int[]{c1, parseColor(cfg.optString("bg_color2", ""), c1)}));
+            } else {
+                root.setBackgroundColor(c1);
+            }
+        }
         float dim = Math.max(0f, Math.min(0.9f, pct("wallpaper_dim", 0)));
         if (dim > 0f) {
             int v = Math.round(255 * (1f - dim));
@@ -246,6 +282,16 @@ public class HomeActivity extends Activity {
             shl.gravity = right ? Gravity.END : Gravity.START;
             root.addView(sh, shl);
         }
+        float bshade = Math.max(0f, Math.min(1f, pct("bottom_shade", 0)));
+        if (bshade > 0f) {
+            View bs = new View(this);
+            int a = Math.round(0xE6 * bshade);
+            bs.setBackground(new GradientDrawable(GradientDrawable.Orientation.BOTTOM_TOP,
+                    new int[]{a << 24, (a / 3) << 24, 0}));
+            FrameLayout.LayoutParams bsl = new FrameLayout.LayoutParams(-1, Math.round(H * 0.55f));
+            bsl.gravity = Gravity.BOTTOM;
+            root.addView(bs, bsl);
+        }
         if (glowOn) {
             int sp = Math.round(H * pct("glow_size", 46));
             GradientDrawable light = new GradientDrawable();
@@ -257,6 +303,10 @@ public class HomeActivity extends Activity {
             spot.setBackground(light);
             spot.setAlpha(0f);
             root.addView(spot, new FrameLayout.LayoutParams(sp, sp));
+        }
+        if (!Board.list(cfg).isEmpty()) {
+            board = new BoardView(this, cfg);
+            root.addView(board, new FrameLayout.LayoutParams(-1, -1));
         }
         buildDock();
         buildPill();
@@ -280,7 +330,12 @@ public class HomeActivity extends Activity {
             recreate();
             return;
         }
-        loadWallpaper(wallName.isEmpty());
+        if (usesWall) {
+            loadWallpaper(wallName.isEmpty());
+        } else {
+            Glass.useBackdrop(null, W, H);
+            themeTo(0);
+        }
         loadApps();
         main.removeCallbacks(weatherTick);
         main.post(weatherTick);
@@ -385,7 +440,8 @@ public class HomeActivity extends Activity {
         tileH = Math.round(tileW / 2.0f);
         gap = pad;
         float tileRadius = tileH * 0.30f;
-        dock = new Glass.Frame(this, tileRadius + pad, 0x40C8CDD8);
+        dock = new Glass.Frame(this, tileRadius + pad, darkInk ? 0x73FFFFFF : 0x40C8CDD8);
+        if ("tonal".equals(tileStyle)) recolor.add(() -> dock.setTint(Board.alpha(Board.tones(accentColor())[0], 0xC7)));
         int edge = edge();
         FrameLayout.LayoutParams lp = new FrameLayout.LayoutParams(panelW, H - 2 * edge);
         lp.leftMargin = edge;
@@ -517,6 +573,7 @@ public class HomeActivity extends Activity {
         dockList.removeAllViews();
         tiles.clear();
         tinted.clear();
+        tileRecolor.clear();
         floating.clear();
         halos.clear();
         View refocus = null;
@@ -550,11 +607,15 @@ public class HomeActivity extends Activity {
             int colH = H - 2 * edge();
             gap = Math.round(H * pct("icon_gap", 4.2f));
             int s = Math.round(H * pct("icon_size", 10.5f));
+            if (list) {
+                gap = Math.round(H * 0.012f);
+                s = Math.round(H * 0.072f);
+            }
             int room = colH - 2 * pad;
             if (n > 0 && n * s + (n - 1) * gap > room)
                 s = Math.max(Math.round(H * 0.06f), (room - (n - 1) * gap) / n);
             tileH = s;
-            tileW = Math.round(W * 0.26f);
+            tileW = Math.round(W * (list ? 0.34f : 0.26f));
             FrameLayout.LayoutParams lp = (FrameLayout.LayoutParams) dock.getLayoutParams();
             lp.width = tileW + 2 * pad;
             dock.setLayoutParams(lp);
@@ -568,7 +629,7 @@ public class HomeActivity extends Activity {
         int std = Math.round((W * 0.19f - 2 * pad) / 2f);
         int fit = n > 0 ? (panelH - 2 * pad - (n - 1) * gap) / n : std;
         tileH = n > 0 && n <= 7 ? Math.min(fit, Math.round(H * 0.2f)) : std;
-        tileW = tileH * 2;
+        tileW = Math.round(tileH * ("tonal".equals(tileStyle) ? 2.8f : 2f));
         FrameLayout.LayoutParams lp = (FrameLayout.LayoutParams) dock.getLayoutParams();
         lp.width = tileW + 2 * pad;
         dock.setLayoutParams(lp);
@@ -578,7 +639,9 @@ public class HomeActivity extends Activity {
     }
 
     private View appTile(App a) {
+        if (list) return listTile(a);
         if (bare) return iconTile(a);
+        if ("plush".equals(tileStyle) || "soft".equals(tileStyle) || "tonal".equals(tileStyle)) return styledTile(a);
         FrameLayout card = card();
         card.setTag(a.pkg);
         float cr = row ? tileH * 0.14f : tileH * 0.30f;
@@ -669,6 +732,153 @@ public class HomeActivity extends Activity {
         return card;
     }
 
+    /** A selected button or pill: light on dark themes, dark on light ones. */
+    private int focusBg() {
+        return darkInk ? 0xFF2B3240 : 0xFFF5F5F7;
+    }
+
+    private int focusFg() {
+        return darkInk ? Color.WHITE : 0xFF1C1C1E;
+    }
+
+    /** Minimalist: the app's name only; the chosen one turns bright and slides out, with an accent bar. */
+    private View listTile(App a) {
+        FrameLayout t = new FrameLayout(this);
+        t.setTag(a.pkg);
+        t.setFocusable(true);
+        t.setClickable(true);
+        t.setClipChildren(false);
+        t.setContentDescription(a.label);
+        float rest = pct("icon_idle", 40);
+        String f = cfg.optString("title_font", "light");
+        if ("dot".equals(f)) f = "light";
+        TextView name = text(a.label, tileH * 0.62f, ink(255), false);
+        name.setTypeface(font(f));
+        name.setSingleLine(true);
+        name.setAlpha(rest);
+        if (!darkInk) name.setShadowLayer(H * 0.01f, 0, H * 0.002f, 0x99000000);
+        int side = (right ? Gravity.END : Gravity.START) | Gravity.CENTER_VERTICAL;
+        FrameLayout.LayoutParams nl = new FrameLayout.LayoutParams(-2, -2);
+        nl.gravity = side;
+        if (right) nl.rightMargin = Math.round(H * 0.035f);
+        else nl.leftMargin = Math.round(H * 0.035f);
+        t.addView(name, nl);
+        View bar = new View(this);
+        bar.setBackground(rounded(accentColor(), H * 0.004f));
+        bar.setAlpha(0f);
+        FrameLayout.LayoutParams bl = new FrameLayout.LayoutParams(Math.max(3, Math.round(H * 0.007f)), Math.round(tileH * 0.55f));
+        bl.gravity = side;
+        t.addView(bar, bl);
+        tileRecolor.add(() -> bar.setBackground(rounded(accentColor(), H * 0.004f)));
+        float slide = H * 0.018f * (right ? -1 : 1);
+        t.setOnFocusChangeListener((v, focused) -> {
+            name.animate().alpha(focused ? 1f : rest).translationX(focused ? slide : 0f).setDuration(180)
+                    .setInterpolator(new DecelerateInterpolator(1.6f)).start();
+            bar.animate().alpha(focused ? 1f : 0f).setDuration(180).start();
+            if (focused) {
+                lastTile = v;
+                keepVisible(v);
+            }
+        });
+        t.setOnClickListener(v -> launch(a));
+        t.setOnLongClickListener(v -> {
+            appMenu(a, v);
+            return true;
+        });
+        return t;
+    }
+
+    /**
+     * Plush (pastel cushions from the wallpaper's colour), Soft (light pillows that rise) and Material (tonal
+     * pills, the chosen one filled): the app's own icon and its name on each tile.
+     */
+    private View styledTile(App a) {
+        boolean tonal = "tonal".equals(tileStyle), soft = "soft".equals(tileStyle);
+        float r = tonal ? tileH * 0.5f : tileH * (row ? 0.24f : 0.3f);
+        Runnable[] hook = new Runnable[1];
+        FrameLayout card = card(r, () -> {
+            if (hook[0] != null) hook[0].run();
+        });
+        card.setTag(a.pkg);
+        GradientDrawable back = new GradientDrawable();
+        back.setCornerRadius(r);
+        card.setBackground(back);
+        card.setElevation(tonal ? 0f : soft ? H * 0.012f : H * 0.016f);
+        ImageView ic = new ImageView(this);
+        Drawable d = a.icon;
+        if (d instanceof AdaptiveIconDrawable) d = new FullBleed((AdaptiveIconDrawable) d);
+        ic.setImageDrawable(d);
+        TextView name = text(a.label, tileH * (tonal ? 0.2f : 0.13f), Color.WHITE, true);
+        name.setSingleLine(true);
+        name.setEllipsize(android.text.TextUtils.TruncateAt.END);
+        if (tonal) {
+            int s = Math.round(tileH * 0.58f);
+            ic.setOutlineProvider(new ViewOutlineProvider() {
+                @Override
+                public void getOutline(View v, Outline o) {
+                    o.setOval(0, 0, v.getWidth(), v.getHeight());
+                }
+            });
+            ic.setClipToOutline(true);
+            LinearLayout line = new LinearLayout(this);
+            line.setGravity(Gravity.CENTER_VERTICAL);
+            line.setPadding(Math.round(tileH * 0.21f), 0, Math.round(tileH * 0.25f), 0);
+            line.addView(ic, new LinearLayout.LayoutParams(s, s));
+            LinearLayout.LayoutParams nl = new LinearLayout.LayoutParams(0, -2, 1f);
+            nl.leftMargin = Math.round(tileH * 0.2f);
+            line.addView(name, nl);
+            card.addView(line, new FrameLayout.LayoutParams(-1, -1));
+        } else {
+            int s = Math.round(tileH * (soft ? 0.44f : 0.5f));
+            float ir = s * 0.24f;
+            ic.setOutlineProvider(new ViewOutlineProvider() {
+                @Override
+                public void getOutline(View v, Outline o) {
+                    o.setRoundRect(0, 0, v.getWidth(), v.getHeight(), ir);
+                }
+            });
+            ic.setClipToOutline(true);
+            ic.setElevation(H * 0.004f);
+            LinearLayout col = new LinearLayout(this);
+            col.setOrientation(LinearLayout.VERTICAL);
+            col.setGravity(Gravity.CENTER);
+            col.addView(ic, new LinearLayout.LayoutParams(s, s));
+            name.setGravity(Gravity.CENTER);
+            name.setPadding(Math.round(tileH * 0.08f), Math.round(tileH * 0.07f), Math.round(tileH * 0.08f), 0);
+            col.addView(name, new LinearLayout.LayoutParams(-1, -2));
+            card.addView(col, new FrameLayout.LayoutParams(-1, -1));
+        }
+        Runnable paint = () -> {
+            boolean f = card.isFocused();
+            int ac = accentColor();
+            if (tonal) {
+                int[] t = Board.tones(ac);
+                back.setColor(f ? t[3] : Board.alpha(t[1], 0xEB));
+                name.setTextColor(f ? t[4] : t[2]);
+            } else if (soft) {
+                int base = parseColor(cfg.optString("bg_color", "#E3E8EF"), 0xFFE3E8EF);
+                back.setOrientation(GradientDrawable.Orientation.TL_BR);
+                back.setColors(new int[]{Board.mix(base, Color.WHITE, f ? 0.6f : 0.38f), Board.mix(base, Color.BLACK, 0.03f)});
+                name.setTextColor(f ? Board.mix(ac, Color.BLACK, 0.2f) : 0xCC2B3240);
+                card.setElevation(f ? H * 0.026f : H * 0.012f);
+            } else {
+                back.setOrientation(GradientDrawable.Orientation.TOP_BOTTOM);
+                back.setColors(new int[]{Board.mix(ac, Color.WHITE, f ? 0.5f : 0.64f), Board.mix(ac, Color.WHITE, f ? 0.2f : 0.38f)});
+                name.setTextColor(Board.mix(ac, Color.BLACK, 0.72f));
+            }
+        };
+        hook[0] = paint;
+        paint.run();
+        tileRecolor.add(paint);
+        card.setContentDescription(a.label);
+        card.setOnClickListener(v -> launch(a));
+        card.setOnLongClickListener(v -> {
+            appMenu(a, v);
+            return true;
+        });
+        return card;
+    }
+
     /** Just the icon; the selected one grows (and glows) and its name fades in beside it. */
     private View iconTile(App a) {
         int s = tileH;
@@ -737,9 +947,9 @@ public class HomeActivity extends Activity {
 
         TextView name = null;
         if (cfg.optBoolean("labels", true)) {
-            name = text(a.label, s * pct("label_size", 24), Color.WHITE, true);
+            name = text(a.label, s * pct("label_size", 24), ink(255), true);
             name.setSingleLine(true);
-            name.setShadowLayer(H * 0.012f, 0, H * 0.002f, 0xB3000000);
+            if (!darkInk) name.setShadowLayer(H * 0.012f, 0, H * 0.002f, 0xB3000000);
             name.setAlpha(0f);
             FrameLayout.LayoutParams nl = new FrameLayout.LayoutParams(-2, -2);
             nl.gravity = side;
@@ -804,12 +1014,16 @@ public class HomeActivity extends Activity {
                     Noir.withAlpha(soft, centre), Noir.withAlpha(c, Math.round(centre * 0.38f)), Noir.withAlpha(c, 0)});
         }
         if (watcher != null) watcher.setAccent(accentNow);
+        for (DotViews.Clock dc : dotClocks) dc.setColor(clockColor());
+        for (Runnable r : recolor) r.run();
+        for (Runnable r : tileRecolor) r.run();
+        if (board != null) board.setAccent(accentNow);
     }
 
     private int clockColor() {
         String cc = cfg.optString("clock_color", "white");
         if ("accent".equals(cc)) return accentColor();
-        return "white".equals(cc) ? Color.WHITE : parseColor(cc, Color.WHITE);
+        return "white".equals(cc) ? ink(255) : parseColor(cc, ink(255));
     }
 
     /** The glow slides behind the selected icon (and the eyes, if on, look at it). */
@@ -884,8 +1098,11 @@ public class HomeActivity extends Activity {
 
     /** A rounded, focusable tile that lifts and gains a bright ring when focused. */
     private FrameLayout card() {
+        return card(row ? tileH * 0.14f : tileH * 0.30f, null);
+    }
+
+    private FrameLayout card(float r, Runnable onFocus) {
         FrameLayout card = new FrameLayout(this);
-        float r = row ? tileH * 0.14f : tileH * 0.30f;
         card.setFocusable(true);
         card.setClickable(true);
         card.setOutlineProvider(new ViewOutlineProvider() {
@@ -907,10 +1124,12 @@ public class HomeActivity extends Activity {
             v.animate().scaleX(focused ? grow : 1f).scaleY(focused ? grow : 1f)
                     .translationZ(focused ? H * 0.015f : 0f)
                     .setDuration(170).setInterpolator(new DecelerateInterpolator(1.6f)).start();
+            if (onFocus != null) onFocus.run();
             if (focused) {
                 lastTile = v;
                 keepVisible(v);
                 if (appTitle != null && v.getContentDescription() != null) appTitle.setText(v.getContentDescription());
+                if (dotTitle != null && v.getContentDescription() != null) dotTitle.setText(v.getContentDescription());
                 follow(v);
             } else if (spot != null) {
                 v.postDelayed(() -> {
@@ -947,7 +1166,8 @@ public class HomeActivity extends Activity {
         int bandW = W - 2 * side;
         int visible = Math.max(2, Math.min(7, cfg.optInt("row_visible", 4)));
         tileW = (bandW - 2 * pad - (visible - 1) * gap) / visible;
-        tileH = Math.round(tileW * 0.5625f);
+        float ratio = "plush".equals(tileStyle) ? 0.78f : "soft".equals(tileStyle) ? 0.7f : "tonal".equals(tileStyle) ? 0.5f : 0.5625f;
+        tileH = Math.round(tileW * ratio);
         int bandH = tileH + 2 * pad;
         int bandTop = Math.round(H * pct("row_top", 64.5f));
         dock = new Glass.Frame(this, tileH * 0.22f + pad, 0x99121318);
@@ -971,16 +1191,26 @@ public class HomeActivity extends Activity {
         rowScroll.addView(dockList, new FrameLayout.LayoutParams(-2, -1));
         dock.addView(rowScroll, new FrameLayout.LayoutParams(-1, -1));
 
-        appTitle = text("", H * 0.075f, Color.WHITE, false);
+        appTitle = text("", H * 0.075f, ink(255), false);
         appTitle.setTypeface(font(cfg.optString("title_font", "light")));
         appTitle.setSingleLine(true);
-        appTitle.setShadowLayer(H * 0.015f, 0, H * 0.003f, 0x80000000);
-        appTitle.setVisibility(cfg.optBoolean("row_title", true) ? View.VISIBLE : View.GONE);
+        if (!darkInk) appTitle.setShadowLayer(H * 0.015f, 0, H * 0.003f, 0x80000000);
+        boolean dotName = "dot".equals(cfg.optString("title_font", "light"));
+        appTitle.setVisibility(cfg.optBoolean("row_title", true) && !dotName ? View.VISIBLE : View.GONE);
         FrameLayout.LayoutParams tl = new FrameLayout.LayoutParams(-2, -2);
         tl.gravity = Gravity.TOP | Gravity.START;
         tl.leftMargin = side + pad;
         tl.topMargin = bandTop - Math.round(H * 0.135f);
         root.addView(appTitle, tl);
+        if (dotName && cfg.optBoolean("row_title", true)) {
+            dotTitle = new DotViews.Text(this, H * 0.075f * 0.72f / 7f);
+            dotTitle.setColor(ink(255));
+            FrameLayout.LayoutParams dl = new FrameLayout.LayoutParams(-2, -2);
+            dl.gravity = Gravity.TOP | Gravity.START;
+            dl.leftMargin = side + pad;
+            dl.topMargin = bandTop - Math.round(H * 0.12f);
+            root.addView(dotTitle, dl);
+        }
     }
 
     /** Greeting, a big clock and the date top left; labelled pills (RAM, Inputs, Settings...) top right. */
@@ -992,15 +1222,30 @@ public class HomeActivity extends Activity {
         LinearLayout block = new LinearLayout(this);
         block.setOrientation(LinearLayout.VERTICAL);
         if (cfg.optBoolean("greeting", true)) {
-            TextView greet = text(greeting(), H * 0.022f, 0xBFFFFFFF, true);
+            TextView greet = text(greeting(), H * 0.022f, ink(0xBF), true);
             greet.setLetterSpacing(0.25f);
-            greet.setShadowLayer(H * 0.01f, 0, 0, 0x80000000);
+            if (!darkInk) greet.setShadowLayer(H * 0.01f, 0, 0, 0x80000000);
             block.addView(greet);
         }
         LinearLayout line = new LinearLayout(this);
         line.setOrientation(LinearLayout.HORIZONTAL);
         line.setGravity(Gravity.BOTTOM);
-        if (cfg.optBoolean("bar_clock", true)) {
+        boolean dotClock = "dot".equals(cfg.optString("clock_style", "text"));
+        if (cfg.optBoolean("bar_clock", true) && dotClock) {
+            DotViews.Clock dc = new DotViews.Clock(this, H * 0.105f * pct("clock_scale", 100), h12, cfg.optBoolean("seconds", false));
+            dc.setColor(col);
+            dotClocks.add(dc);
+            LinearLayout.LayoutParams dcl0 = new LinearLayout.LayoutParams(-2, -2);
+            dcl0.bottomMargin = Math.round(H * 0.006f);
+            line.addView(dc, dcl0);
+            View div = new View(this);
+            div.setBackgroundColor(ink(0x4D));
+            LinearLayout.LayoutParams dl = new LinearLayout.LayoutParams(Math.max(1, Math.round(H * 0.0015f)), Math.round(H * 0.055f));
+            dl.leftMargin = Math.round(H * 0.03f);
+            dl.rightMargin = Math.round(H * 0.03f);
+            dl.bottomMargin = Math.round(H * 0.006f);
+            line.addView(div, dl);
+        } else if (cfg.optBoolean("bar_clock", true)) {
             TextClock time = new TextClock(this);
             String fmt = h12 ? "h:mm" : "HH:mm";
             time.setFormat12Hour(fmt);
@@ -1010,7 +1255,7 @@ public class HomeActivity extends Activity {
             time.setTextSize(TypedValue.COMPLEX_UNIT_PX, H * 0.105f * pct("clock_scale", 100));
             time.setTypeface(font(cfg.optString("clock_font", "light")));
             time.setIncludeFontPadding(false);
-            time.setShadowLayer(H * 0.015f, 0, H * 0.003f, 0x80000000);
+            if (!darkInk) time.setShadowLayer(H * 0.015f, 0, H * 0.003f, 0x80000000);
             line.addView(time);
             if (cfg.optBoolean("seconds", false)) {
                 secondsView = new Noir.Seconds(this, time, H * 0.035f * pct("clock_scale", 100));
@@ -1024,7 +1269,7 @@ public class HomeActivity extends Activity {
                 TextClock ap = new TextClock(this);
                 ap.setFormat12Hour("a");
                 ap.setFormat24Hour("a");
-                ap.setTextColor(0xD9FFFFFF);
+                ap.setTextColor(ink(0xD9));
                 ap.setTextSize(TypedValue.COMPLEX_UNIT_PX, H * 0.03f);
                 ap.setTypeface(font("medium"));
                 ap.setAllCaps(true);
@@ -1034,7 +1279,7 @@ public class HomeActivity extends Activity {
                 line.addView(ap, al);
             }
             View div = new View(this);
-            div.setBackgroundColor(0x4DFFFFFF);
+            div.setBackgroundColor(ink(0x4D));
             LinearLayout.LayoutParams dl = new LinearLayout.LayoutParams(Math.max(1, Math.round(H * 0.0015f)), Math.round(H * 0.055f));
             dl.leftMargin = Math.round(H * 0.03f);
             dl.rightMargin = Math.round(H * 0.03f);
@@ -1047,16 +1292,16 @@ public class HomeActivity extends Activity {
         date.setFormat12Hour("EEEE  dd MMMM");
         date.setFormat24Hour("EEEE  dd MMMM");
         date.setAllCaps(true);
-        date.setTextColor(0xD9FFFFFF);
+        date.setTextColor(ink(0xD9));
         date.setTextSize(TypedValue.COMPLEX_UNIT_PX, H * 0.026f);
         date.setTypeface(font("medium"));
         date.setLetterSpacing(0.15f);
-        date.setShadowLayer(H * 0.01f, 0, 0, 0x80000000);
+        if (!darkInk) date.setShadowLayer(H * 0.01f, 0, 0, 0x80000000);
         dateCol.addView(date);
         if (cfg.optBoolean("bar_weather", true)) {
-            weatherView = text("", H * 0.024f, 0xBFFFFFFF, false);
+            weatherView = text("", H * 0.024f, ink(0xBF), false);
             weatherView.setLetterSpacing(0.08f);
-            weatherView.setShadowLayer(H * 0.01f, 0, 0, 0x80000000);
+            if (!darkInk) weatherView.setShadowLayer(H * 0.01f, 0, 0, 0x80000000);
             weatherView.setVisibility(View.GONE);
             dateCol.addView(weatherView);
         }
@@ -1119,26 +1364,26 @@ public class HomeActivity extends Activity {
         b.setPadding(Math.round(h * 0.36f), 0, Math.round(h * 0.42f), 0);
         GradientDrawable rest = new GradientDrawable();
         rest.setCornerRadius(h / 2f);
-        rest.setColor(0x59202226);
-        rest.setStroke(Math.max(1, Math.round(H * 0.0015f)), 0x4DFFFFFF);
+        rest.setColor(darkInk ? 0x73FFFFFF : 0x59202226);
+        rest.setStroke(Math.max(1, Math.round(H * 0.0015f)), darkInk ? 0x1F000000 : 0x4DFFFFFF);
         GradientDrawable focus = new GradientDrawable();
         focus.setCornerRadius(h / 2f);
-        focus.setColor(0xFFF5F5F7);
+        focus.setColor(focusBg());
         b.setBackground(rest);
         ImageView ic = new ImageView(this);
         ic.setImageResource(icon);
-        ic.setImageTintList(ColorStateList.valueOf(Color.WHITE));
+        ic.setImageTintList(ColorStateList.valueOf(ink(255)));
         int s = Math.round(h * 0.42f);
         LinearLayout.LayoutParams il = new LinearLayout.LayoutParams(s, s);
         il.rightMargin = Math.round(h * 0.2f);
         b.addView(ic, il);
-        TextView t = text(label, h * 0.3f, Color.WHITE, true);
+        TextView t = text(label, h * 0.3f, ink(255), true);
         t.setSingleLine(true);
         b.addView(t);
         b.setOnFocusChangeListener((v, focused) -> {
             v.setBackground(focused ? focus : rest);
-            ic.setImageTintList(ColorStateList.valueOf(focused ? 0xFF1C1C1E : Color.WHITE));
-            t.setTextColor(focused ? 0xFF1C1C1E : Color.WHITE);
+            ic.setImageTintList(ColorStateList.valueOf(focused ? focusFg() : ink(255)));
+            t.setTextColor(focused ? focusFg() : ink(255));
             v.animate().scaleX(focused ? 1.06f : 1f).scaleY(focused ? 1.06f : 1f).setDuration(150).start();
             if (focused) lastButton = v;
         });
@@ -1213,7 +1458,8 @@ public class HomeActivity extends Activity {
             return;
         }
         int h = Math.round(H * 0.076f);
-        pill = new Glass.Frame(this, h / 2f, 0x4A9AA3B5);
+        pill = new Glass.Frame(this, h / 2f, darkInk ? 0x8CFFFFFF : 0x4A9AA3B5);
+        if ("tonal".equals(tileStyle)) recolor.add(() -> pill.setTint(Board.alpha(Board.tones(accentColor())[0], 0xC7)));
         FrameLayout.LayoutParams lp = new FrameLayout.LayoutParams(-2, h);
         lp.gravity = Gravity.TOP | (right ? Gravity.START : Gravity.END);
         lp.topMargin = edge();
@@ -1228,7 +1474,15 @@ public class HomeActivity extends Activity {
         pillRow.setPadding(Math.round(h * (barePill ? 0.1f : 0.42f)), 0, Math.round(h * 0.16f), 0);
         pillRow.setClipChildren(false);
         pillRow.setClipToPadding(false);
-        if (cfg.optBoolean("bar_clock", true)) {
+        if (cfg.optBoolean("bar_clock", true) && "dot".equals(cfg.optString("clock_style", "text"))) {
+            DotViews.Clock dc = new DotViews.Clock(this, h * 0.46f * pct("clock_scale", 100),
+                    "12".equals(cfg.optString("clock", "24")), cfg.optBoolean("seconds", false));
+            dc.setColor(clockColor());
+            dotClocks.add(dc);
+            LinearLayout.LayoutParams tl = new LinearLayout.LayoutParams(-2, -2);
+            tl.rightMargin = Math.round(h * 0.3f);
+            pillRow.addView(dc, tl);
+        } else if (cfg.optBoolean("bar_clock", true)) {
             TextClock time = new TextClock(this);
             String fmt = "12".equals(cfg.optString("clock", "24")) ? "h:mm" : "HH:mm";
             time.setFormat12Hour(fmt);
@@ -1238,7 +1492,7 @@ public class HomeActivity extends Activity {
             time.setTextSize(TypedValue.COMPLEX_UNIT_PX, h * 0.46f * pct("clock_scale", 100));
             time.setTypeface(font(cfg.optString("clock_font", "medium")));
             time.setIncludeFontPadding(false);
-            if (barePill) time.setShadowLayer(h * 0.12f, 0, h * 0.02f, 0x99000000);
+            if (barePill && !darkInk) time.setShadowLayer(h * 0.12f, 0, h * 0.02f, 0x99000000);
             LinearLayout.LayoutParams tl = new LinearLayout.LayoutParams(-2, -2);
             tl.rightMargin = Math.round(h * 0.26f);
             pillRow.addView(time, tl);
@@ -1255,12 +1509,12 @@ public class HomeActivity extends Activity {
 
         if (cfg.optBoolean("bar_weather", true)) {
             weatherView = new TextView(this);
-            weatherView.setTextColor(0xE6FFFFFF);
+            weatherView.setTextColor(ink(0xE6));
             weatherView.setTextSize(TypedValue.COMPLEX_UNIT_PX, h * 0.3f);
             weatherView.setTypeface(font("medium"));
             weatherView.setSingleLine(true);
             weatherView.setIncludeFontPadding(false);
-            if (barePill) weatherView.setShadowLayer(h * 0.12f, 0, h * 0.02f, 0x99000000);
+            if (barePill && !darkInk) weatherView.setShadowLayer(h * 0.12f, 0, h * 0.02f, 0x99000000);
             weatherView.setVisibility(View.GONE);
             LinearLayout.LayoutParams wl = new LinearLayout.LayoutParams(-2, -2);
             wl.rightMargin = Math.round(h * 0.3f);
@@ -1290,10 +1544,10 @@ public class HomeActivity extends Activity {
         b.setContentDescription(name);
         GradientDrawable rest = new GradientDrawable();
         rest.setShape(GradientDrawable.OVAL);
-        rest.setColor(fill);
+        rest.setColor(darkInk && fill != 0xFFFA2D48 ? 0x1A000000 : fill);
         GradientDrawable focus = new GradientDrawable();
         focus.setShape(GradientDrawable.OVAL);
-        focus.setColor(0xFFF5F5F7);
+        focus.setColor(focusBg());
         if (barePill) {
             rest.setColor(Color.TRANSPARENT);
             b.setElevation(0f);
@@ -1301,14 +1555,15 @@ public class HomeActivity extends Activity {
         b.setBackground(rest);
         ImageView ic = new ImageView(this);
         ic.setImageResource(icon);
-        ic.setImageTintList(ColorStateList.valueOf(Color.WHITE));
+        int restInk = fill == 0xFFFA2D48 ? Color.WHITE : ink(255);
+        ic.setImageTintList(ColorStateList.valueOf(restInk));
         int s = Math.round(d * 0.58f);
         FrameLayout.LayoutParams il = new FrameLayout.LayoutParams(s, s);
         il.gravity = Gravity.CENTER;
         b.addView(ic, il);
         b.setOnFocusChangeListener((v, focused) -> {
             v.setBackground(focused ? focus : rest);
-            ic.setImageTintList(ColorStateList.valueOf(focused ? 0xFF1C1C1E : Color.WHITE));
+            ic.setImageTintList(ColorStateList.valueOf(focused ? focusFg() : restInk));
             v.animate().scaleX(focused ? 1.12f : 1f).scaleY(focused ? 1.12f : 1f).setDuration(150).start();
             if (focused) lastButton = v;
         });

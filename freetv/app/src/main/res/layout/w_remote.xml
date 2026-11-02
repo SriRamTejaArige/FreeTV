@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent" android:layout_height="match_parent"
+    android:orientation="vertical" android:gravity="center" android:padding="12dp"
+    android:background="@drawable/w_bg">
+        <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="horizontal">
+            <ImageView android:id="@+id/w_back" android:layout_width="0dp" android:layout_height="52dp" android:layout_weight="1" android:layout_margin="4dp" android:background="@drawable/w_key" android:padding="14dp" android:src="@drawable/f_back" android:contentDescription="Back" />
+            <ImageView android:id="@+id/w_up" android:layout_width="0dp" android:layout_height="52dp" android:layout_weight="1" android:layout_margin="4dp" android:background="@drawable/w_key" android:padding="14dp" android:src="@drawable/f_up" android:contentDescription="Up" />
+            <ImageView android:id="@+id/w_home" android:layout_width="0dp" android:layout_height="52dp" android:layout_weight="1" android:layout_margin="4dp" android:background="@drawable/w_key" android:padding="14dp" android:src="@drawable/f_home" android:contentDescription="Home" />
+        </LinearLayout>
+        <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="horizontal">
+            <ImageView android:id="@+id/w_left" android:layout_width="0dp" android:layout_height="52dp" android:layout_weight="1" android:layout_margin="4dp" android:background="@drawable/w_key" android:padding="14dp" android:src="@drawable/f_left" android:contentDescription="Left" />
+            <TextView android:id="@+id/w_ok" android:layout_width="0dp" android:layout_height="52dp" android:layout_weight="1" android:layout_margin="4dp" android:background="@drawable/w_ok" android:gravity="center" android:text="OK" android:textColor="#FFFFFFFF" android:textSize="16sp" android:textStyle="bold" />
+            <ImageView android:id="@+id/w_right" android:layout_width="0dp" android:layout_height="52dp" android:layout_weight="1" android:layout_margin="4dp" android:background="@drawable/w_key" android:padding="14dp" android:src="@drawable/f_right" android:contentDescription="Right" />
+        </LinearLayout>
+        <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="horizontal">
+            <ImageView android:id="@+id/w_voldown" android:layout_width="0dp" android:layout_height="52dp" android:layout_weight="1" android:layout_margin="4dp" android:background="@drawable/w_key" android:padding="14dp" android:src="@drawable/f_vol_down" android:contentDescription="Volume down" />
+            <ImageView android:id="@+id/w_down" android:layout_width="0dp" android:layout_height="52dp" android:layout_weight="1" android:layout_margin="4dp" android:background="@drawable/w_key" android:padding="14dp" android:src="@drawable/f_down" android:contentDescription="Down" />
+            <ImageView android:id="@+id/w_volup" android:layout_width="0dp" android:layout_height="52dp" android:layout_weight="1" android:layout_margin="4dp" android:background="@drawable/w_key" android:padding="14dp" android:src="@drawable/f_vol_up" android:contentDescription="Volume up" />
+        </LinearLayout>
+</LinearLayout>
